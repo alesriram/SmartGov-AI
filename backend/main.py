@@ -248,7 +248,19 @@ async def submit_complaint(
     db.add(complaint)
     db.commit()
     db.refresh(complaint)
-    background_tasks.add_task(send_complaint_acknowledgement, complaint)
+
+    complaint_payload = {
+        "id": complaint.id,
+        "citizen_name": complaint.citizen_name,
+        "citizen_contact": complaint.citizen_contact,
+        "category": complaint.category,
+        "priority": complaint.priority.value if hasattr(complaint.priority, "value") else str(complaint.priority),
+        "department_name": dept.name if dept else "Municipal Department",
+        "address": complaint.address,
+        "description": complaint.description,
+        "ai_response": complaint.ai_response,
+    }
+    background_tasks.add_task(send_complaint_acknowledgement, complaint_payload)
 
     return _to_out(complaint)
 

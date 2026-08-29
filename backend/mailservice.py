@@ -76,16 +76,26 @@ def _is_email_address(value: str | None) -> bool:
 
 def _build_html_email(complaint, head: dict) -> str:
     """Creates a modern, stylish, and responsive HTML email template for the citizen."""
-    cid = complaint.id
-    citizen_name = complaint.citizen_name or "Valued Citizen"
-    category = (complaint.category or "General Grievance").replace("_", " ").title()
-    priority = (complaint.priority.value if hasattr(complaint.priority, "value") else complaint.priority or "Medium").capitalize()
-    dept_name = complaint.department.name if getattr(complaint, "department", None) else f"{category} Department"
-    address = complaint.address or "Municipal Ward Zone, Hyderabad"
-    description = complaint.description or "Civic issue reported via citizen portal."
-    ai_response = complaint.ai_response or (
-        f"Your grievance has been validated and queued for field action by the {dept_name}."
-    )
+    if isinstance(complaint, dict):
+        cid = complaint.get("id", 1)
+        citizen_name = complaint.get("citizen_name") or "Valued Citizen"
+        category = (complaint.get("category") or "General Grievance").replace("_", " ").title()
+        p = complaint.get("priority", "Medium")
+        priority = (p.value if hasattr(p, "value") else str(p)).capitalize()
+        dept_name = complaint.get("department_name") or f"{category} Department"
+        address = complaint.get("address") or "Municipal Ward Zone, Hyderabad"
+        description = complaint.get("description") or "Civic issue reported via citizen portal."
+        ai_response = complaint.get("ai_response") or f"Your grievance has been validated and queued for field action by the {dept_name}."
+    else:
+        cid = getattr(complaint, "id", 1)
+        citizen_name = getattr(complaint, "citizen_name", None) or "Valued Citizen"
+        category = (getattr(complaint, "category", None) or "General Grievance").replace("_", " ").title()
+        p = getattr(complaint, "priority", "Medium")
+        priority = (p.value if hasattr(p, "value") else str(p)).capitalize()
+        dept_name = getattr(complaint, "department_name", None) or f"{category} Department"
+        address = getattr(complaint, "address", None) or "Municipal Ward Zone, Hyderabad"
+        description = getattr(complaint, "description", None) or "Civic issue reported via citizen portal."
+        ai_response = getattr(complaint, "ai_response", None) or f"Your grievance has been validated and queued for field action by the {dept_name}."
 
     priority_color = "#e11d48" if priority.lower() == "critical" else "#d97706" if priority.lower() == "high" else "#0284c7"
     priority_bg = "#ffe4e6" if priority.lower() == "critical" else "#fef3c7" if priority.lower() == "high" else "#e0f2fe"
@@ -252,7 +262,24 @@ def send_complaint_acknowledgement(complaint) -> bool:
     Tries Port 465 (direct SSL) first for maximum cloud firewall compatibility
     (especially on Render/AWS/GCP), then falls back to Port 587 (STARTTLS).
     """
-    recipient = (getattr(complaint, "citizen_contact", None) or "").strip()
+    if isinstance(complaint, dict):
+        recipient = (complaint.get("citizen_contact") or "").strip()
+        cid = complaint.get("id", "N/A")
+        cat = complaint.get("category")
+        c_name = complaint.get("citizen_name") or "Citizen"
+        prio = str(complaint.get("priority", "Normal"))
+        dept_name = complaint.get("department_name") or "Municipal Department"
+        desc = complaint.get("description") or ""
+    else:
+        recipient = (getattr(complaint, "citizen_contact", None) or "").strip()
+        cid = getattr(complaint, "id", "N/A")
+        cat = getattr(complaint, "category", None)
+        c_name = getattr(complaint, "citizen_name", None) or "Citizen"
+        p = getattr(complaint, "priority", "Normal")
+        prio = p.value if hasattr(p, "value") else str(p)
+        dept_name = getattr(complaint, "department_name", None) or "Municipal Department"
+        desc = getattr(complaint, "description", None) or ""
+
     if not _is_email_address(recipient):
         print(f"[mailservice] Recipient '{recipient}' is not a valid email address; skipping.")
         return False
@@ -263,12 +290,12 @@ def send_complaint_acknowledgement(complaint) -> bool:
     sender = (os.getenv("SMTP_FROM") or username).strip()
 
     if not host or not sender or not password:
-        print(f"[mailservice] ⚠️ SMTP credentials incomplete (host='{host}', sender='{sender}', has_password={bool(password)}). Set SMTP_USERNAME and SMTP_PASSWORD in Render Environment.")
+        print(f"[mailservice] [WARNING] SMTP credentials incomplete (host='{host}', sender='{sender}', has_password={bool(password)}). Set SMTP_USERNAME and SMTP_PASSWORD in Render Environment.")
         logger.warning("SMTP credentials incomplete; skipping email acknowledgement")
         return False
 
-    head = get_department_head(getattr(complaint, "category", None))
-    subject = f"🏛️ [Ticket #{complaint.id}] Grievance Registered: {getattr(complaint, 'category', 'Civic Issue').replace('_', ' ').title()}"
+    head = get_department_head(cat)
+    subject = f"[Ticket #{cid}] Grievance Registered: {str(cat or 'Civic Issue').replace('_', ' ').title()}"
 
     message = EmailMessage()
     message["Subject"] = subject
@@ -279,19 +306,19 @@ def send_complaint_acknowledgement(complaint) -> bool:
     plain_text = (
         f"SmartGov Civic Intelligence - Official Acknowledgement\n"
         f"----------------------------------------------------\n"
-        f"Hello {getattr(complaint, 'citizen_name', None) or 'Citizen'},\n\n"
+        f"Hello {c_name},\n\n"
         f"Your grievance has been registered successfully.\n\n"
-        f"Ticket Number: #{complaint.id}\n"
-        f"Category: {getattr(complaint, 'category', 'General')}\n"
-        f"Priority: {getattr(complaint, 'priority', 'Normal')}\n"
-        f"Assigned Department: {getattr(complaint, 'department', None).name if getattr(complaint, 'department', None) else 'Municipal Department'}\n\n"
+        f"Ticket Number: #{cid}\n"
+        f"Category: {cat or 'General'}\n"
+        f"Priority: {prio}\n"
+        f"Assigned Department: {dept_name}\n\n"
         f"--- DEPARTMENT LEADERSHIP & ESCALATION ---\n"
         f"Department Head: {head['name']}\n"
         f"Designation: {head['title']}\n"
         f"Official Email: {head['email']}\n"
         f"Helpline: {head['phone']}\n"
         f"Zonal Office: {head['office']}\n\n"
-        f"Reported Issue: \"{getattr(complaint, 'description', '')}\"\n\n"
+        f"Reported Issue: \"{desc}\"\n\n"
         f"Our field teams will address your grievance in accordance with municipal SLAs.\n"
         f"24/7 Citizen Helpline: 1800-425-SMART\n"
     )
@@ -325,12 +352,12 @@ def send_complaint_acknowledgement(complaint) -> bool:
                 if username and password:
                     smtp.login(username, password)
                 smtp.send_message(message)
-            print(f"[mailservice] ✓ Acknowledgement email successfully sent to {recipient} via {host}:{port}!")
-            logger.info("SMTP acknowledgement sent successfully for complaint %s to %s via %s:%s", complaint.id, recipient, host, port)
+            print(f"[mailservice] [SUCCESS] Acknowledgement email sent to {recipient} via {host}:{port}!")
+            logger.info("SMTP acknowledgement sent successfully for complaint %s to %s via %s:%s", cid, recipient, host, port)
             return True
         except Exception as exc:
-            print(f"[mailservice] ⚠️ Attempt via {host}:{port} failed: {exc}")
+            print(f"[mailservice] [WARNING] Attempt via {host}:{port} failed: {exc}")
             logger.warning("SMTP attempt via %s:%s failed: %s", host, port, exc)
 
-    print(f"[mailservice] ❌ All SMTP connection attempts failed for recipient {recipient}.")
+    print(f"[mailservice] [ERROR] All SMTP connection attempts failed for recipient {recipient}.")
     return False
