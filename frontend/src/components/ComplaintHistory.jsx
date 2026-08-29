@@ -104,6 +104,7 @@ export default function ComplaintHistory({
     });
   }, [complaints, userFilterName, currentUser]);
 
+
   return (
     <div className="complaint-history-layout">
       {/* Top Header & Section Switcher */}
