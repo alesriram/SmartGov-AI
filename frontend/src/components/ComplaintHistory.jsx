@@ -1,5 +1,12 @@
 import { useState, useMemo, useEffect } from "react";
 import { api } from "../api";
+import {
+  exportComplaintsToCSV,
+  computeSlaStatus,
+  saveComplaintFeedback,
+  getComplaintFeedback,
+} from "../utils/civicHelpers";
+import { printOfficialReceipt } from "../utils/receiptPrinter";
 
 const PRIORITY_CLASS = {
   critical: "badge-danger",
@@ -42,6 +49,48 @@ export default function ComplaintHistory({
   const [sortBy, setSortBy] = useState("newest");
   const [selectedModalItem, setSelectedModalItem] = useState(null);
   const [userFilterName, setUserFilterName] = useState(currentUser?.fullName || "Demo Operator");
+
+  // Escalated tickets state
+  const [escalatedTickets, setEscalatedTickets] = useState(() => {
+    try {
+      const saved = localStorage.getItem("smartgov-escalated-tickets");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const handleEscalateTicket = (e, complaint) => {
+    e.stopPropagation();
+    const cid = complaint.id;
+    const next = { ...escalatedTickets, [cid]: { escalatedAt: new Date().toISOString() } };
+    setEscalatedTickets(next);
+    localStorage.setItem("smartgov-escalated-tickets", JSON.stringify(next));
+    alert(`🚨 Ticket #${cid} has been escalated with Urgent Priority to the Department Head! SLA response dispatch has been flagged.`);
+  };
+
+  // CSAT Rating state
+  const [ratingsMap, setRatingsMap] = useState(() => {
+    try {
+      const raw = localStorage.getItem("smartgov_csat_feedback_v1");
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const handleRateComplaint = (cid, stars, tag) => {
+    const existing = ratingsMap[cid] || { rating: 5, tags: [] };
+    const nextRating = stars || existing.rating || 5;
+    let nextTags = existing.tags || [];
+    if (tag) {
+      nextTags = nextTags.includes(tag) ? nextTags.filter((t) => t !== tag) : [...nextTags, tag];
+    }
+    const res = saveComplaintFeedback(cid, nextRating, nextTags);
+    if (res) {
+      setRatingsMap((prev) => ({ ...prev, [cid]: res }));
+    }
+  };
 
   // Format date helper
   const formatDate = (dateStr) => {
@@ -226,74 +275,117 @@ export default function ComplaintHistory({
             </div>
           </div>
 
-          {/* Quick Metrics Strip */}
+          {/* Quick Metrics Strip with CSV Export */}
           <div className="history-metrics-strip">
-            <span>Filtered Results: <strong>{statsOverview.total}</strong></span>
-            <span className="dot-sep" />
-            <span className="text-danger">Critical: <strong>{statsOverview.critical}</strong></span>
-            <span className="dot-sep" />
-            <span className="text-blue">In Progress: <strong>{statsOverview.inProgress}</strong></span>
-            <span className="dot-sep" />
-            <span className="text-teal">Resolved: <strong>{statsOverview.resolved}</strong></span>
+            <div className="metrics-left">
+              <span>Filtered Results: <strong>{statsOverview.total}</strong></span>
+              <span className="dot-sep" />
+              <span className="text-danger">Critical: <strong>{statsOverview.critical}</strong></span>
+              <span className="dot-sep" />
+              <span className="text-blue">In Progress: <strong>{statsOverview.inProgress}</strong></span>
+              <span className="dot-sep" />
+              <span className="text-teal">Resolved: <strong>{statsOverview.resolved}</strong></span>
+            </div>
+            <button
+              type="button"
+              className="btn-export-csv"
+              onClick={() => exportComplaintsToCSV(filteredCitywide, `smartgov_complaints_export_${new Date().toISOString().slice(0, 10)}.csv`)}
+              title="Download all filtered grievance records as an official CSV spreadsheet"
+            >
+              📥 Export CSV ({filteredCitywide.length})
+            </button>
           </div>
 
           {/* Complaints Grid */}
           <div className="citywide-grid">
-            {filteredCitywide.map((c) => (
-              <div key={c.id} className="citywide-card">
-                <div className="card-top">
-                  <div className="card-id-row">
-                    <span className="mono card-id">#{c.id}</span>
-                    <span className="card-cat">{c.category?.replace(/_/g, " ")}</span>
+            {filteredCitywide.map((c) => {
+              const sla = computeSlaStatus(c.created_at, c.priority, c.status);
+              const isEscalated = !!escalatedTickets[c.id];
+
+              return (
+                <div key={c.id} className="citywide-card">
+                  <div className="card-top">
+                    <div className="card-id-row">
+                      <span className="mono card-id">#{c.id}</span>
+                      <span className="card-cat">{c.category?.replace(/_/g, " ")}</span>
+                    </div>
+                    <div className="card-badges">
+                      <span className={`badge ${PRIORITY_CLASS[c.priority] || "badge-muted"}`}>
+                        {c.priority}
+                      </span>
+                      <span className={STATUS_CLASS[c.status] || "status-pill"}>
+                        {c.status?.replace(/_/g, " ")}
+                      </span>
+                    </div>
                   </div>
-                  <div className="card-badges">
-                    <span className={`badge ${PRIORITY_CLASS[c.priority] || "badge-muted"}`}>
-                      {c.priority}
+
+                  {/* Live SLA Countdown Badge */}
+                  <div className={`card-sla-strip ${sla.urgency}${isEscalated ? " escalated" : ""}`}>
+                    <span className="sla-text">
+                      {isEscalated ? "🚨 Escalated to Dept Head (Urgent SLA)" : sla.badgeText}
                     </span>
-                    <span className={STATUS_CLASS[c.status] || "status-pill"}>
-                      {c.status?.replace(/_/g, " ")}
-                    </span>
+                    {!isEscalated && sla.urgency !== "resolved" && (
+                      <button
+                        type="button"
+                        className="btn-escalate-tag"
+                        onClick={(e) => handleEscalateTicket(e, c)}
+                        title="Click to escalate this grievance to Department Head"
+                      >
+                        Escalate ⚠️
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="card-desc">{c.description}</div>
+
+                  <div className="card-details-grid">
+                    <div className="card-detail-item">
+                      <span className="detail-label">Location / Ward</span>
+                      <span className="detail-value text-ellipsis">📍 {c.address || "Hyderabad Civic Sector"}</span>
+                    </div>
+
+                    <div className="card-detail-item">
+                      <span className="detail-label">Citizen</span>
+                      <span className="detail-value text-ellipsis">👤 {c.citizen_name || "Citizen"}</span>
+                    </div>
+
+                    <div className="card-detail-item">
+                      <span className="detail-label">Assigned Department</span>
+                      <span className="detail-value text-ellipsis">🏛️ {c.department || "General Grievance"}</span>
+                    </div>
+
+                    <div className="card-detail-item">
+                      <span className="detail-label">Reported On</span>
+                      <span className="detail-value mono">{formatDate(c.created_at)}</span>
+                    </div>
+                  </div>
+
+                  <div className="card-footer">
+                    <button
+                      type="button"
+                      className="card-action-btn primary"
+                      onClick={() => {
+                        onSelectComplaint?.(c.id);
+                        setSelectedModalItem(c);
+                      }}
+                    >
+                      Inspect Agent Trace &amp; Details →
+                    </button>
+                    <button
+                      type="button"
+                      className="card-action-btn btn-receipt-icon"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        printOfficialReceipt(c);
+                      }}
+                      title="Print or download official PDF receipt"
+                    >
+                      📄 Receipt
+                    </button>
                   </div>
                 </div>
-
-                <div className="card-desc">{c.description}</div>
-
-                <div className="card-details-grid">
-                  <div className="card-detail-item">
-                    <span className="detail-label">Location / Ward</span>
-                    <span className="detail-value text-ellipsis">📍 {c.address || "Hyderabad Civic Sector"}</span>
-                  </div>
-
-                  <div className="card-detail-item">
-                    <span className="detail-label">Citizen</span>
-                    <span className="detail-value text-ellipsis">👤 {c.citizen_name || "Citizen"}</span>
-                  </div>
-
-                  <div className="card-detail-item">
-                    <span className="detail-label">Assigned Department</span>
-                    <span className="detail-value text-ellipsis">🏛️ {c.department || "General Grievance"}</span>
-                  </div>
-
-                  <div className="card-detail-item">
-                    <span className="detail-label">Reported On</span>
-                    <span className="detail-value mono">{formatDate(c.created_at)}</span>
-                  </div>
-                </div>
-
-                <div className="card-footer">
-                  <button
-                    type="button"
-                    className="card-action-btn primary"
-                    onClick={() => {
-                      onSelectComplaint?.(c.id);
-                      setSelectedModalItem(c);
-                    }}
-                  >
-                    Inspect Agent Trace &amp; Details →
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
 
             {filteredCitywide.length === 0 && (
               <div className="history-empty-box">
@@ -414,6 +506,29 @@ export default function ComplaintHistory({
                     </div>
                   </div>
 
+                  {/* Live SLA Countdown & Escalation Strip */}
+                  {(() => {
+                    const sla = computeSlaStatus(c.created_at, c.priority, c.status);
+                    const isEscalated = !!escalatedTickets[c.id];
+                    return (
+                      <div className={`card-sla-strip ${sla.urgency}${isEscalated ? " escalated" : ""}`}>
+                        <span className="sla-text">
+                          {isEscalated ? "🚨 Escalated to Dept Head (Urgent SLA)" : sla.badgeText}
+                        </span>
+                        {!isEscalated && sla.urgency !== "resolved" && (
+                          <button
+                            type="button"
+                            className="btn-escalate-tag"
+                            onClick={(e) => handleEscalateTicket(e, c)}
+                            title="Click to escalate this grievance to Department Head"
+                          >
+                            Escalate ⚠️
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {/* Grievance Progress Stepper */}
                   <div className="grievance-stepper">
                     <div className="step-node active">
@@ -457,6 +572,48 @@ export default function ComplaintHistory({
                     </div>
                   )}
 
+                  {/* Citizen Satisfaction (CSAT) 5-Star Feedback */}
+                  <div className="citizen-feedback-box">
+                    <div className="feedback-head">
+                      <span className="feedback-label">Rate Municipal Resolution Quality:</span>
+                      <div className="feedback-stars">
+                        {[1, 2, 3, 4, 5].map((star) => {
+                          const currentRating = ratingsMap[c.id]?.rating || 0;
+                          return (
+                            <button
+                              key={star}
+                              type="button"
+                              className={`star-btn ${star <= currentRating ? "active" : ""}`}
+                              onClick={() => handleRateComplaint(c.id, star)}
+                              title={`Rate ${star} of 5 Stars`}
+                            >
+                              ★
+                            </button>
+                          );
+                        })}
+                        <span className="rating-tag">
+                          {ratingsMap[c.id]?.rating ? `${ratingsMap[c.id].rating}/5 Stars` : "Tap to rate"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="feedback-tags-row">
+                      {["Prompt Resolution", "Polite Field Crew", "Good Quality", "Needs Follow-up", "Delayed Work"].map((tag) => {
+                        const isSelected = ratingsMap[c.id]?.tags?.includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            className={`feedback-chip ${isSelected ? "selected" : ""}`}
+                            onClick={() => handleRateComplaint(c.id, null, tag)}
+                          >
+                            {tag} {isSelected ? "✓" : "+"}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Metadata Row */}
                   <div className="user-card-meta-row">
                     <span>📍 Location: <strong>{c.address || "Hyderabad Zone"}</strong></span>
@@ -470,6 +627,16 @@ export default function ComplaintHistory({
                       }}
                     >
                       View AI Decision Trace &amp; Details →
+                    </button>
+                    <button
+                      type="button"
+                      className="text-btn-action receipt-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        printOfficialReceipt(c);
+                      }}
+                    >
+                      📄 Official Receipt (PDF)
                     </button>
                   </div>
                 </div>
@@ -552,6 +719,14 @@ export default function ComplaintHistory({
             </div>
 
             <div className="profile-actions">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => printOfficialReceipt(selectedModalItem)}
+                style={{ background: "#0f766e", borderColor: "#0f766e" }}
+              >
+                🖨️ Print Official Receipt / PDF
+              </button>
               <button type="button" className="btn-ghost" onClick={() => setSelectedModalItem(null)}>Close</button>
             </div>
           </div>

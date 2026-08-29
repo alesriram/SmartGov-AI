@@ -1,5 +1,9 @@
+import { getOverallCSATMetrics } from "../utils/civicHelpers";
+
 export default function StatStrip({ stats }) {
   if (!stats) return null;
+
+  const csat = getOverallCSATMetrics();
 
   const items = [
     { label: "Total complaints", value: stats.total_complaints, accent: "text" },
@@ -11,6 +15,16 @@ export default function StatStrip({ stats }) {
       label: "Avg. resolution",
       value: stats.avg_resolution_hours ? `${stats.avg_resolution_hours}h` : "—",
       accent: "text",
+    },
+    {
+      label: "Citizen CSAT Index",
+      value: `⭐ ${csat.average}/5`,
+      accent: "teal",
+    },
+    {
+      label: "SLA On-Time Rate",
+      value: `${csat.satisfactionRate}`,
+      accent: "blue",
     },
   ];
 
