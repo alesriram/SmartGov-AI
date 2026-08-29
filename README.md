@@ -35,24 +35,28 @@ python seed_data.py           # creates smartcity.db with demo departments + 45 
 uvicorn main:app --reload     # http://localhost:8000  (docs at /docs)
 ```
 
-To send acknowledgement emails, configure SMTP before starting the backend:
+To send acknowledgement emails, configure Brevo API (recommended for Render cloud) or Gmail SMTP:
 
 ```powershell
+# Option A: Brevo HTTPS REST API (Recommended for Render Cloud - Bypasses SMTP port restrictions)
+$env:BREVO_API_KEY="xkeysib-..."
+
+# Option B: Standard Gmail SMTP (Works for local testing)
 $env:SMTP_HOST="smtp.gmail.com"
-$env:SMTP_PORT="587"
-$env:SMTP_USERNAME="alesriram27@gmail.com"
-$env:SMTP_PASSWORD="txuevhatcacmkhbn"
-$env:SMTP_FROM="alesriram27@gmail.com"
-$env:SMTP_USE_SSL="false"
+$env:SMTP_PORT="465"
+$env:SMTP_USERNAME="your_email@gmail.com"
+$env:SMTP_PASSWORD="your_16_character_app_password"
+$env:SMTP_FROM="your_email@gmail.com"
+$env:SMTP_USE_SSL="true"
 ```
 
 The user's `Contact` value is treated as an email address when it contains a
-valid email format. SMTP delivery is best-effort: a complaint remains saved if
-SMTP is not configured or the mail server is unavailable.
+valid email format. The system automatically dispatches an official HTML receipt
+with ticket ID and assigned Department Head details.
 
-### AI Copilot LLM Integration (Groq & Gemini)
+### AI Copilot LLM Integration (Groq, Gemini & OpenAI)
 
-SmartGov Copilot supports **Groq** (Llama 3.3 70B), **Google Gemini** (1.5 / 2.0 Flash), and **OpenAI**:
+SmartGov Copilot supports **Groq** (Llama 3.3 70B / GPT-OSS), **Google Gemini** (1.5 / 2.0 Flash), and **OpenAI**:
 
 Configure your key directly in `backend/.env` or click **"LLM API Settings"** in the Copilot UI:
 
@@ -64,6 +68,10 @@ $env:GROQ_MODEL="llama-3.3-70b-versatile"
 # Option B: Google Gemini (Free: https://aistudio.google.com)
 $env:GEMINI_API_KEY="AIzaSy..."
 $env:GEMINI_MODEL="gemini-1.5-flash"
+
+# Option C: OpenAI (Optional)
+$env:OPENAI_API_KEY="sk-..."
+$env:OPENAI_MODEL="gpt-4o-mini"
 ```
 
 ### 2. Frontend
@@ -95,25 +103,26 @@ judges respect honesty about scope far more than an unlabeled black box.
 | Hotspot detection | **Real** grid-based geospatial clustering on actual stored lat/long data. |
 | GIS map | **Real** Leaflet map with live data from the API. |
 | Dashboard, charts, live agent trace visualization | **Real**, all wired to live API data, auto-refreshes every 15s. |
+| Citizen Auth & Session Persistence | **Real**, citizen signup/signin, profile drawer, persistent session across refreshes, and 1-click fast login. |
+| Cloud Notification Dispatch | **Real**, Brevo HTTPS API on Port 443 (bypasses cloud SMTP blocks) + Gmail SMTP with dual-port fallback. |
+| Multilingual Speech-to-Text & TTS | **Real**, Web Speech API supporting Telugu, Tinglish, Hindi, Tamil, Kannada, and English. |
 
-## Suggested next steps to strengthen this for competition
+## Tech Stack
 
-1. **Fine-tune YOLOv8 on a real civic dataset** (Roboflow has open pothole and
-   garbage datasets) and swap it into `cv_module/detector.py` — this is the
-   single highest-impact upgrade and is genuinely a manageable weekend task.
-2. **Wire in a real LLM** (`OPENAI_API_KEY` or a local Llama 3 via Groq) for
-   the NLP module — the code path already exists, it's one env var away.
-3. **Port `agents/workflow.py` to real LangGraph** — the functions are
-   already shaped as graph nodes; this mainly demonstrates you understand the
-   multi-agent framework mentioned in your proposal.
-4. **Swap SQLite → PostgreSQL** for the "production-grade" story — change one
-   line in `database.py`.
-5. **Add authentication** (citizen login, department-staff login) if your
-   rubric rewards role-based access control.
-6. **Deploy** the backend (Render/Railway) and frontend (Vercel/Netlify) so
-   you can demo from a live URL instead of localhost.
+**Single-Line (Resume / Portfolio):**
+> **Tech Stack:** Python, FastAPI, React.js, Vite, OpenCV, YOLOv8, Groq (Llama 3) / Google Gemini / GPT-4o-mini, Multi-Agent Workflow, Scikit-learn, Pandas, NumPy, SQLAlchemy, SQLite, Leaflet GIS API, Web Speech API, Brevo API, Render.
 
-## Tech stack
+**Categorized Breakdown:**
+* **Frontend:** React 19, Vite 8, Leaflet GIS (`react-leaflet`), Recharts, Custom Vanilla CSS
+* **Backend:** Python 3.11, FastAPI, Uvicorn, Pydantic v2, SQLAlchemy 2.0, SQLite
+* **AI & Computer Vision:** Ultralytics YOLOv8 (`yolov8n.pt`), OpenCV (`opencv-python-headless`)
+* **LLMs & Multi-Agent:** Groq Cloud (Llama 3.3 70B), Google Gemini Flash, OpenAI GPT-4o-mini, 4-Agent Pipeline
+* **Data Science & ML:** Scikit-learn, Pandas, NumPy
+* **Cloud & DevOps:** Render (IaC Blueprint), Brevo HTTPS REST API, Gmail SMTP, Git / GitHub
 
-Python, FastAPI, SQLAlchemy, SQLite, OpenCV, Ultralytics YOLOv8, scikit-learn,
-React, Vite, Recharts, Leaflet/react-leaflet, Axios.
+## Cloud Deployment & 24/7 Keepalive (Render & UptimeRobot)
+
+* **Deployment Blueprint:** Configured via `render.yaml` with zero-downtime healthcheck path (`/health`).
+* **UptimeRobot Keepalive:** To prevent Render's free tier from sleeping after 15 minutes, set up a free HTTP monitor pointing to:
+  `https://smartcity-backend.onrender.com/health` (5-minute interval).
+* **Diagnostic Test:** Visit `https://smartcity-backend.onrender.com/docs` to test endpoints and email delivery.

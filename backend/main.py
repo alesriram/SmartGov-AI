@@ -299,6 +299,12 @@ def _to_out(c: models.Complaint, email_dispatched: Optional[bool] = None) -> sch
     )
 
 
+@app.get("/health")
+def health_check():
+    """Ultra-fast keepalive and monitoring endpoint for UptimeRobot and Render."""
+    return {"status": "healthy", "service": "smartcity-backend", "time": datetime.datetime.utcnow().isoformat()}
+
+
 @app.post("/test-email")
 def test_email(to: str = "alesaisriramkumar@gmail.com"):
     """Instant test endpoint to verify email delivery from Render or local server."""

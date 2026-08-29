@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { api } from "../api";
-import { printOfficialReceipt } from "../utils/receiptPrinter";
 
 const CATEGORY_HINTS = [
   "Pothole / road damage",
@@ -94,7 +93,6 @@ export default function ReportForm({ onSubmitted, user }) {
   const [submitting, setSubmitting] = useState(false);
   const [modalData, setModalData] = useState(null);
   const [error, setError] = useState(null);
-  const [isEmergencySos, setIsEmergencySos] = useState(false);
 
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -235,10 +233,7 @@ export default function ReportForm({ onSubmitted, user }) {
     setError(null);
     try {
       const fd = new FormData();
-      const finalDesc = isEmergencySos && !form.description.startsWith("[CRITICAL EMERGENCY HAZARD]")
-        ? `[CRITICAL EMERGENCY HAZARD] ${form.description}`
-        : form.description;
-      Object.entries({ ...form, description: finalDesc }).forEach(([k, v]) => fd.append(k, v));
+      Object.entries(form).forEach(([k, v]) => fd.append(k, v));
       if (selectedLang && selectedLang !== "auto") {
         fd.append("original_language", selectedLang);
       }
@@ -267,7 +262,6 @@ export default function ReportForm({ onSubmitted, user }) {
     setError(null);
     setIsListening(false);
     setSpeechStatus("");
-    setIsEmergencySos(false);
   };
 
   // Get department head from returned data or fallback map
@@ -277,7 +271,7 @@ export default function ReportForm({ onSubmitted, user }) {
 
   return (
     <div className="report-fullwidth-container">
-      <form className={`panel report-form-full${isEmergencySos ? " sos-active" : ""}`} onSubmit={handleSubmit}>
+      <form className="panel report-form-full" onSubmit={handleSubmit}>
         <div className="panel-head report-head">
           <div>
             <h3>Report a Civic Issue</h3>
@@ -285,65 +279,8 @@ export default function ReportForm({ onSubmitted, user }) {
               Multi-lingual voice &amp; text recognition with automatic English translation
             </span>
           </div>
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            {isEmergencySos && <span className="sos-badge-flashing">🚨 EMERGENCY PRIORITY ACTIVE</span>}
-            <span className="civic-badge-pill">⚡ Instant AI Triage</span>
-          </div>
+          <span className="civic-badge-pill">⚡ Instant AI Triage</span>
         </div>
-
-        {/* Emergency Civic Hazard SOS Toggle */}
-        <div className={`sos-toggle-banner ${isEmergencySos ? "active" : ""}`}>
-          <div className="sos-banner-left">
-            <span className="sos-icon">🚨</span>
-            <div>
-              <div className="sos-title">Emergency Civic Hazard Mode</div>
-              <div className="sos-desc">
-                Toggle ON for live fallen electrical wires, gas leaks, road cave-ins, or toxic flooding (activates 12h Critical SLA).
-              </div>
-            </div>
-          </div>
-          <label className="sos-switch" title="Toggle Emergency Hazard Mode">
-            <input
-              type="checkbox"
-              checked={isEmergencySos}
-              onChange={(e) => setIsEmergencySos(e.target.checked)}
-            />
-            <span className="sos-slider" />
-          </label>
-        </div>
-
-        {isEmergencySos && (
-          <div className="sos-quick-dials">
-            <a href="tel:112" className="sos-dial-card police">
-              <span className="dial-icon">🚨</span>
-              <div>
-                <strong className="dial-num">112 / 100</strong>
-                <div className="dial-lbl">Police / PCR Call</div>
-              </div>
-            </a>
-            <a href="tel:101" className="sos-dial-card fire">
-              <span className="dial-icon">🚒</span>
-              <div>
-                <strong className="dial-num">101</strong>
-                <div className="dial-lbl">Fire &amp; Rescue</div>
-              </div>
-            </a>
-            <a href="tel:108" className="sos-dial-card medical">
-              <span className="dial-icon">🚑</span>
-              <div>
-                <strong className="dial-num">108</strong>
-                <div className="dial-lbl">Emergency Ambulance</div>
-              </div>
-            </a>
-            <a href="tel:04021111111" className="sos-dial-card disaster">
-              <span className="dial-icon">🏛️</span>
-              <div>
-                <strong className="dial-num">040-21111111</strong>
-                <div className="dial-lbl">24/7 Disaster Control</div>
-              </div>
-            </a>
-          </div>
-        )}
 
         {/* Description Field with Top-Right Mic & Minimal English Placeholder */}
         <div className="field">
@@ -641,14 +578,6 @@ export default function ReportForm({ onSubmitted, user }) {
                 onClick={handleResetForm}
               >
                 + File Another Civic Grievance
-              </button>
-              <button
-                type="button"
-                className="btn-ghost btn-receipt-modal"
-                onClick={() => printOfficialReceipt(modalData, headDetails)}
-                title="Print or save PDF receipt with official municipal verification seal"
-              >
-                🖨️ Download Official Receipt (PDF)
               </button>
               <button
                 type="button"
