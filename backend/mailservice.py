@@ -248,22 +248,27 @@ def _build_html_email(complaint, head: dict) -> str:
 
 def send_complaint_acknowledgement(complaint) -> bool:
     """Send a rich, stylish HTML acknowledgement with Department Head details."""
-    recipient = complaint.citizen_contact
+    recipient = (getattr(complaint, "citizen_contact", None) or "").strip()
     if not _is_email_address(recipient):
+        print(f"[mailservice] Recipient '{recipient}' is not an email address. Skipping email.")
+        logger.info("Recipient '%s' is not an email address; skipping acknowledgement", recipient)
         return False
 
-    host = os.getenv("SMTP_HOST")
-    username = os.getenv("SMTP_USERNAME")
-    password = os.getenv("SMTP_PASSWORD")
-    sender = os.getenv("SMTP_FROM", username)
-    if not host or not sender:
-        logger.info("SMTP is not configured; skipping complaint acknowledgement")
+    # Check all possible environment variable aliases
+    username = (os.getenv("SMTP_USERNAME") or os.getenv("EMAIL_USER") or os.getenv("MAIL_USERNAME") or "").strip()
+    password = (os.getenv("SMTP_PASSWORD") or os.getenv("EMAIL_PASS") or os.getenv("MAIL_PASSWORD") or "").strip()
+    host = (os.getenv("SMTP_HOST") or ("smtp.gmail.com" if "@gmail.com" in username.lower() else "")).strip()
+    sender = (os.getenv("SMTP_FROM") or username).strip()
+    port = int(os.getenv("SMTP_PORT", "587"))
+    use_ssl = os.getenv("SMTP_USE_SSL", "false").lower() == "true"
+
+    if not host or not sender or not password:
+        msg = f"[mailservice] SMTP credentials not set on server (host='{host}', sender='{sender}', has_password={bool(password)}). Set SMTP_USERNAME and SMTP_PASSWORD in Render Environment."
+        print(msg)
+        logger.warning(msg)
         return False
 
     head = get_department_head(getattr(complaint, "category", None))
-
-    port = int(os.getenv("SMTP_PORT", "587"))
-    use_ssl = os.getenv("SMTP_USE_SSL", "false").lower() == "true"
     subject = f"🏛️ [Ticket #{complaint.id}] Grievance Registered: {getattr(complaint, 'category', 'Civic Issue').replace('_', ' ').title()}"
 
     message = EmailMessage()
@@ -299,18 +304,19 @@ def send_complaint_acknowledgement(complaint) -> bool:
 
     try:
         smtp_class = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
-        logger.info("Attempting SMTP send for complaint %s to %s via %s:%s", complaint.id, recipient, host, port)
-        with smtp_class(host, port, timeout=10) as smtp:
+        print(f"[mailservice] Sending acknowledgement for ticket #{complaint.id} to {recipient} via {host}:{port} (sender={sender})...")
+        with smtp_class(host, port, timeout=12) as smtp:
             smtp.ehlo()
             if not use_ssl:
                 smtp.starttls()
                 smtp.ehlo()
             if username and password:
-                logger.info("SMTP login for complaint %s using %s", complaint.id, username)
                 smtp.login(username, password)
             smtp.send_message(message)
-        logger.info("SMTP acknowledgement sent successfully for complaint %s", complaint.id)
+        print(f"[mailservice] Acknowledgement email sent successfully to {recipient}!")
+        logger.info("SMTP acknowledgement sent successfully for complaint %s to %s", complaint.id, recipient)
         return True
     except (OSError, smtplib.SMTPException, ValueError) as exc:
+        print(f"[mailservice] Failed to send email to {recipient}: {exc}")
         logger.exception("Failed to send acknowledgement for complaint %s. Error: %s", complaint.id, exc)
         return False
