@@ -375,13 +375,16 @@ export default function ReportForm({ onSubmitted, user }) {
             />
           </label>
           <label className="field">
-            <span>Email for Real-Time Status &amp; Acknowledgement (optional)</span>
+            <span>Email for Instant Notification &amp; Tracking</span>
             <input
               type="email"
               value={form.citizen_contact}
               onChange={update("citizen_contact")}
-              placeholder="you@example.com (sends official acknowledgment email)"
+              placeholder="e.g. your_email@gmail.com"
             />
+            <span style={{ fontSize: "11px", color: "var(--text-muted, #64748b)", marginTop: "4px" }}>
+              ✉️ Enter your email to receive the official ticket receipt &amp; department contacts.
+            </span>
           </label>
         </div>
 
@@ -474,6 +477,18 @@ export default function ReportForm({ onSubmitted, user }) {
                   )}
                 </div>
               </div>
+
+              {form.citizen_contact ? (
+                <div style={{ background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.3)", borderRadius: "8px", padding: "10px 14px", margin: "14px 0 16px", display: "flex", alignItems: "center", gap: "10px", fontSize: "13px", color: "var(--text-primary, #0f172a)" }}>
+                  <span style={{ fontSize: "18px" }}>📧</span>
+                  <span>Official acknowledgement dispatched to <strong>{form.citizen_contact}</strong> (check your inbox / spam folder).</span>
+                </div>
+              ) : (
+                <div style={{ background: "rgba(14, 165, 233, 0.08)", border: "1px solid rgba(14, 165, 233, 0.25)", borderRadius: "8px", padding: "10px 14px", margin: "14px 0 16px", display: "flex", alignItems: "center", gap: "10px", fontSize: "13px", color: "var(--text-primary, #0f172a)" }}>
+                  <span style={{ fontSize: "18px" }}>🔔</span>
+                  <span>Alert dispatched directly to the Municipal Operations Command Centre.</span>
+                </div>
+              )}
 
               <div className="ack-triage-grid">
                 <div className="ack-grid-item">

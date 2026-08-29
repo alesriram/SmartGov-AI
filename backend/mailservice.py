@@ -280,36 +280,47 @@ def send_complaint_acknowledgement(complaint) -> bool:
         dept_name = getattr(complaint, "department_name", None) or "Municipal Department"
         desc = getattr(complaint, "description", None) or ""
 
-    if not _is_email_address(recipient):
-        print(f"[mailservice] Recipient '{recipient}' is not a valid email address; skipping.")
-        return False
-
     username = (os.getenv("SMTP_USERNAME") or os.getenv("EMAIL_USER") or os.getenv("MAIL_USERNAME") or "").strip()
     password = (os.getenv("SMTP_PASSWORD") or os.getenv("EMAIL_PASS") or os.getenv("MAIL_PASSWORD") or "").strip()
     host = (os.getenv("SMTP_HOST") or ("smtp.gmail.com" if "@gmail.com" in username.lower() else "")).strip()
     sender = (os.getenv("SMTP_FROM") or username).strip()
 
     if not host or not sender or not password:
-        print(f"[mailservice] [WARNING] SMTP credentials incomplete (host='{host}', sender='{sender}', has_password={bool(password)}). Set SMTP_USERNAME and SMTP_PASSWORD in Render Environment.")
-        logger.warning("SMTP credentials incomplete; skipping email acknowledgement")
+        print(f"[mailservice] [WARNING] SMTP credentials incomplete (host='{host}', sender='{sender}', has_password={bool(password)}). Set SMTP_USERNAME and SMTP_PASSWORD.")
+        logger.warning("SMTP credentials incomplete; skipping email dispatch")
         return False
 
+    has_citizen_recipient = _is_email_address(recipient)
+    # Target recipient: citizen if provided, otherwise sender / admin
+    primary_to = recipient if has_citizen_recipient else sender
+    bcc_sender = sender if (has_citizen_recipient and _is_email_address(sender) and sender.lower() != recipient.lower()) else None
+
     head = get_department_head(cat)
-    subject = f"[Ticket #{cid}] Grievance Registered: {str(cat or 'Civic Issue').replace('_', ' ').title()}"
+    if has_citizen_recipient:
+        subject = f"[Ticket #{cid}] Grievance Registered: {str(cat or 'Civic Issue').replace('_', ' ').title()}"
+    else:
+        subject = f"[Admin Alert | Ticket #{cid}] Grievance Registered: {str(cat or 'Civic Issue').replace('_', ' ').title()}"
 
     message = EmailMessage()
     message["Subject"] = subject
     message["From"] = f"SmartGov Civic Intelligence <{sender}>"
     message["Reply-To"] = sender
-    message["To"] = recipient
+    message["To"] = primary_to
+    if bcc_sender:
+        message["Bcc"] = bcc_sender
 
     # Plain text version fallback
+    notice_intro = (
+        f"Hello {c_name},\n\nYour grievance has been registered successfully."
+        if has_citizen_recipient
+        else f"Municipal Dispatch Team,\n\nA new civic grievance #{cid} has been submitted without a citizen return email."
+    )
     plain_text = (
         f"SmartGov Civic Intelligence - Official Acknowledgement\n"
         f"----------------------------------------------------\n"
-        f"Hello {c_name},\n\n"
-        f"Your grievance has been registered successfully.\n\n"
+        f"{notice_intro}\n\n"
         f"Ticket Number: #{cid}\n"
+        f"Citizen Name: {c_name}\n"
         f"Category: {cat or 'General'}\n"
         f"Priority: {prio}\n"
         f"Assigned Department: {dept_name}\n\n"
@@ -320,7 +331,7 @@ def send_complaint_acknowledgement(complaint) -> bool:
         f"Helpline: {head['phone']}\n"
         f"Zonal Office: {head['office']}\n\n"
         f"Reported Issue: \"{desc}\"\n\n"
-        f"Our field teams will address your grievance in accordance with municipal SLAs.\n"
+        f"Field teams will address this grievance in accordance with municipal SLAs.\n"
         f"24/7 Citizen Helpline: 1800-425-SMART\n"
     )
     message.set_content(plain_text)
@@ -329,13 +340,16 @@ def send_complaint_acknowledgement(complaint) -> bool:
     html_content = _build_html_email(complaint, head)
     message.add_alternative(html_content, subtype="html")
 
-    # Determine primary and fallback ports
-    # Port 465 (SSL) is standard for cloud providers (like Render) that restrict port 587/25
+    # Determine connection attempts (try configured port first, then fallback port)
+    # Port 465 (SSL) is standard for cloud providers (like Render), 587 (STARTTLS) for standard SMTP
     custom_port = os.getenv("SMTP_PORT")
     attempts = []
     if custom_port:
         p = int(custom_port)
         attempts.append((p, p == 465))
+        # Add fallback to the alternate port
+        fallback_p = 587 if p == 465 else 465
+        attempts.append((fallback_p, fallback_p == 465))
     else:
         # Default: Try 465 SSL first, then 587 STARTTLS
         attempts.append((465, True))
@@ -353,12 +367,12 @@ def send_complaint_acknowledgement(complaint) -> bool:
                 if username and password:
                     smtp.login(username, password)
                 smtp.send_message(message)
-            print(f"[mailservice] [SUCCESS] Acknowledgement email sent to {recipient} via {host}:{port}!")
-            logger.info("SMTP acknowledgement sent successfully for complaint %s to %s via %s:%s", cid, recipient, host, port)
+            print(f"[mailservice] [SUCCESS] Notification email dispatched for #{cid} to {primary_to}" + (f" (BCC: {bcc_sender})" if bcc_sender else "") + f" via {host}:{port}!")
+            logger.info("SMTP acknowledgement sent successfully for complaint %s to %s via %s:%s", cid, primary_to, host, port)
             return True
         except Exception as exc:
             print(f"[mailservice] [WARNING] Attempt via {host}:{port} failed: {exc}")
             logger.warning("SMTP attempt via %s:%s failed: %s", host, port, exc)
 
-    print(f"[mailservice] [ERROR] All SMTP connection attempts failed for recipient {recipient}.")
+    print(f"[mailservice] [ERROR] All SMTP connection attempts failed for complaint #{cid}.")
     return False
