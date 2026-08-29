@@ -2753,13 +2753,6 @@
   color: #ffffff;
 }
 
-.history-section-content {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  width: 100%;
-}
-
 /* Section 1: Citywide Filter Bar */
 .history-filter-bar {
   display: flex;

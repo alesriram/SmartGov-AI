@@ -104,6 +104,14 @@ export default function ComplaintHistory({
     });
   }, [complaints, userFilterName, currentUser]);
 
+  // Citywide Stats in current view
+  const statsOverview = useMemo(() => {
+    const total = filteredCitywide.length;
+    const critical = filteredCitywide.filter((c) => c.priority === "critical").length;
+    const resolved = filteredCitywide.filter((c) => c.status === "resolved").length;
+    const inProgress = filteredCitywide.filter((c) => c.status === "in_progress").length;
+    return { total, critical, resolved, inProgress };
+  }, [filteredCitywide]);
 
   return (
     <div className="complaint-history-layout">
@@ -216,6 +224,17 @@ export default function ComplaintHistory({
                 <option value="priority">Priority: Highest</option>
               </select>
             </div>
+          </div>
+
+          {/* Quick Metrics Strip */}
+          <div className="history-metrics-strip">
+            <span>Filtered Results: <strong>{statsOverview.total}</strong></span>
+            <span className="dot-sep" />
+            <span className="text-danger">Critical: <strong>{statsOverview.critical}</strong></span>
+            <span className="dot-sep" />
+            <span className="text-blue">In Progress: <strong>{statsOverview.inProgress}</strong></span>
+            <span className="dot-sep" />
+            <span className="text-teal">Resolved: <strong>{statsOverview.resolved}</strong></span>
           </div>
 
           {/* Complaints Grid */}

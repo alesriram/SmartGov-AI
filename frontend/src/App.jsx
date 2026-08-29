@@ -30,8 +30,30 @@ const DEMO_USER = {
 const normalizeEmail = (value = "") => value.trim().toLowerCase();
 
 export default function App() {
-  const [view, setView] = useState("overview");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem("smartgov-current-user");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    try {
+      const saved = localStorage.getItem("smartgov-current-user");
+      return !!saved;
+    } catch {
+      return false;
+    }
+  });
+  const [view, setView] = useState(() => {
+    try {
+      const savedView = localStorage.getItem("smartgov-current-view");
+      return savedView || "overview";
+    } catch {
+      return "overview";
+    }
+  });
   const [authMode, setAuthMode] = useState("signin");
   const [authForm, setAuthForm] = useState(emptyForm);
   const [authError, setAuthError] = useState("");
@@ -43,7 +65,6 @@ export default function App() {
       return [];
     }
   });
-  const [currentUser, setCurrentUser] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileDraft, setProfileDraft] = useState({ fullName: "", email: "" });
@@ -72,6 +93,22 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("smartgov-registered-users", JSON.stringify(registeredUsers));
   }, [registeredUsers]);
+
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem("smartgov-current-user", JSON.stringify(currentUser));
+      setIsAuthenticated(true);
+    } else {
+      localStorage.removeItem("smartgov-current-user");
+      setIsAuthenticated(false);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (view) {
+      localStorage.setItem("smartgov-current-view", view);
+    }
+  }, [view]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -204,6 +241,11 @@ export default function App() {
   const handleLogout = () => {
     setIsAuthenticated(false);
     setCurrentUser(null);
+    try {
+      localStorage.removeItem("smartgov-current-user");
+      localStorage.removeItem("smartgov-current-view");
+    } catch {}
+    setView("overview");
     setAuthMode("signin");
     setAuthForm(emptyForm);
     setAuthError("");
