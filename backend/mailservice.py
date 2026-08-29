@@ -74,6 +74,95 @@ def _is_email_address(value: str | None) -> bool:
     return "@" in address and "." in address.rsplit("@", 1)[-1]
 
 
+def _send_via_brevo_api(api_key: str, sender_email: str, recipient_email: str, bcc_email: str | None, subject: str, html_content: str, text_content: str) -> bool:
+    """Dispatches email via Brevo HTTPS REST API (Port 443).
+    Bypasses Render cloud outbound SMTP port restrictions (Errno 101).
+    """
+    import json
+    import urllib.error
+    import urllib.request
+
+    url = "https://api.brevo.com/v3/smtp/email"
+    payload = {
+        "sender": {"name": "SmartGov Civic Intelligence", "email": sender_email or "smartgov.alerts@gmail.com"},
+        "to": [{"email": recipient_email}],
+        "subject": subject,
+        "htmlContent": html_content,
+        "textContent": text_content,
+        "replyTo": {"email": sender_email}
+    }
+    if bcc_email and bcc_email.lower() != recipient_email.lower():
+        payload["bcc"] = [{"email": bcc_email}]
+
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "api-key": api_key.strip(),
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "SmartGov-Civic/1.0"
+        },
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            if resp.status in (200, 201):
+                print(f"[mailservice] [SUCCESS] Brevo HTTPS API dispatched email to {recipient_email}!")
+                return True
+    except urllib.error.HTTPError as he:
+        body = he.read().decode("utf-8", errors="ignore")
+        print(f"[mailservice] [WARNING] Brevo API HTTP {he.code}: {body}")
+    except Exception as exc:
+        print(f"[mailservice] [WARNING] Brevo API call failed: {exc}")
+    return False
+
+
+def _send_via_resend_api(api_key: str, sender_email: str, recipient_email: str, bcc_email: str | None, subject: str, html_content: str, text_content: str) -> bool:
+    """Dispatches email via Resend HTTPS REST API (Port 443).
+    Bypasses Render cloud outbound SMTP port restrictions (Errno 101).
+    """
+    import json
+    import urllib.error
+    import urllib.request
+
+    url = "https://api.resend.com/emails"
+    from_sender = f"SmartGov Civic Intelligence <{sender_email}>" if ("@" in sender_email and "gmail.com" not in sender_email) else "SmartGov Civic Intelligence <onboarding@resend.dev>"
+    payload = {
+        "from": from_sender,
+        "to": [recipient_email],
+        "subject": subject,
+        "html": html_content,
+        "text": text_content,
+    }
+    if bcc_email and bcc_email.lower() != recipient_email.lower():
+        payload["bcc"] = [bcc_email]
+
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Authorization": f"Bearer {api_key.strip()}",
+            "Content-Type": "application/json",
+            "User-Agent": "SmartGov-Civic/1.0"
+        },
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            if resp.status in (200, 201):
+                print(f"[mailservice] [SUCCESS] Resend HTTPS API dispatched email to {recipient_email}!")
+                return True
+    except urllib.error.HTTPError as he:
+        body = he.read().decode("utf-8", errors="ignore")
+        print(f"[mailservice] [WARNING] Resend API HTTP {he.code}: {body}")
+    except Exception as exc:
+        print(f"[mailservice] [WARNING] Resend API call failed: {exc}")
+    return False
+
+
 def _build_html_email(complaint, head: dict) -> str:
     """Creates a modern, stylish, and responsive HTML email template for the citizen."""
     if isinstance(complaint, dict):
@@ -340,8 +429,32 @@ def send_complaint_acknowledgement(complaint) -> bool:
     html_content = _build_html_email(complaint, head)
     message.add_alternative(html_content, subtype="html")
 
-    # Determine connection attempts (try configured port first, then fallback port)
-    # Port 465 (SSL) is standard for cloud providers (like Render), 587 (STARTTLS) for standard SMTP
+    # -----------------------------------------------------------------------
+    # 1. BREVO HTTPS REST API (Port 443)
+    # Render Free Tier blocks outbound SMTP ports 25, 465, 587 (Errno 101).
+    # Brevo uses HTTPS (Port 443), which is 100% open and never blocked on Render.
+    # -----------------------------------------------------------------------
+    brevo_api_key = os.getenv("BREVO_API_KEY", "").strip()
+    if brevo_api_key:
+        print(f"[mailservice] Attempting dispatch via Brevo HTTPS REST API (Port 443) for #{cid}...")
+        if _send_via_brevo_api(brevo_api_key, sender, primary_to, bcc_sender, subject, html_content, plain_text):
+            logger.info("Email dispatched via Brevo HTTPS API for complaint %s to %s", cid, primary_to)
+            return True
+
+    # -----------------------------------------------------------------------
+    # 2. RESEND HTTPS REST API (Port 443)
+    # -----------------------------------------------------------------------
+    resend_api_key = os.getenv("RESEND_API_KEY", "").strip()
+    if resend_api_key:
+        print(f"[mailservice] Attempting dispatch via Resend HTTPS REST API (Port 443) for #{cid}...")
+        if _send_via_resend_api(resend_api_key, sender, primary_to, bcc_sender, subject, html_content, plain_text):
+            logger.info("Email dispatched via Resend HTTPS API for complaint %s to %s", cid, primary_to)
+            return True
+
+    # -----------------------------------------------------------------------
+    # 3. DIRECT SMTP (smtp.gmail.com:465 / 587)
+    # Note: On Render Free Tier, all outbound SMTP ports are blocked with Errno 101.
+    # -----------------------------------------------------------------------
     custom_port = os.getenv("SMTP_PORT")
     attempts = []
     if custom_port:
@@ -378,6 +491,13 @@ def send_complaint_acknowledgement(complaint) -> bool:
             print(f"[mailservice] [SUCCESS] Notification email dispatched for #{cid} to {primary_to}" + (f" (BCC: {bcc_sender})" if bcc_sender else "") + f" via {host}:{port}!")
             logger.info("SMTP acknowledgement sent successfully for complaint %s to %s via %s:%s", cid, primary_to, host, port)
             return True
+        except OSError as osc_exc:
+            if getattr(osc_exc, 'errno', None) == 101 or "Network is unreachable" in str(osc_exc):
+                print(f"[mailservice] [CLOUD RESTRICTION] Render Free Tier blocks outbound SMTP traffic (Errno 101 Network unreachable on port {port}).")
+                print(f"[mailservice] [SOLUTION] Add BREVO_API_KEY (free 300 emails/day at brevo.com) to Render Environment to send via unblockable HTTPS (Port 443)!")
+            else:
+                print(f"[mailservice] [WARNING] Attempt via {host}:{port} failed: {osc_exc}")
+            logger.warning("SMTP attempt via %s:%s failed: %s", host, port, osc_exc)
         except Exception as exc:
             print(f"[mailservice] [WARNING] Attempt via {host}:{port} failed: {exc}")
             logger.warning("SMTP attempt via %s:%s failed: %s", host, port, exc)
