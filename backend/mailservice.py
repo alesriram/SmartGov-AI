@@ -299,7 +299,8 @@ def send_complaint_acknowledgement(complaint) -> bool:
 
     message = EmailMessage()
     message["Subject"] = subject
-    message["From"] = sender
+    message["From"] = f"SmartGov Civic Intelligence <{sender}>"
+    message["Reply-To"] = sender
     message["To"] = recipient
 
     # Plain text version fallback

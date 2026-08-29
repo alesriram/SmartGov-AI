@@ -224,6 +224,11 @@ export default function ReportForm({ onSubmitted, user }) {
       setIsListening(false);
     }
 
+    if (!form.description.trim()) {
+      setError("⚠️ Please type or speak your civic grievance in the description box before submitting!");
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
     try {
