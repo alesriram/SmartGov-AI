@@ -478,10 +478,10 @@ export default function ReportForm({ onSubmitted, user }) {
                 </div>
               </div>
 
-              {form.citizen_contact ? (
+              {modalData.citizen_contact || form.citizen_contact ? (
                 <div style={{ background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.3)", borderRadius: "8px", padding: "10px 14px", margin: "14px 0 16px", display: "flex", alignItems: "center", gap: "10px", fontSize: "13px", color: "var(--text-primary, #0f172a)" }}>
                   <span style={{ fontSize: "18px" }}>📧</span>
-                  <span>Official acknowledgement dispatched to <strong>{form.citizen_contact}</strong> (check your inbox / spam folder).</span>
+                  <span>Official acknowledgement dispatched to <strong>{modalData.citizen_contact || form.citizen_contact}</strong> (check your inbox / spam folder).</span>
                 </div>
               ) : (
                 <div style={{ background: "rgba(14, 165, 233, 0.08)", border: "1px solid rgba(14, 165, 233, 0.25)", borderRadius: "8px", padding: "10px 14px", margin: "14px 0 16px", display: "flex", alignItems: "center", gap: "10px", fontSize: "13px", color: "var(--text-primary, #0f172a)" }}>

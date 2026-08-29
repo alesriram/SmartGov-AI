@@ -260,16 +260,24 @@ async def submit_complaint(
         "description": complaint.description,
         "ai_response": complaint.ai_response,
     }
-    background_tasks.add_task(send_complaint_acknowledgement, complaint_payload)
 
-    return _to_out(complaint)
+    # Dispatch email acknowledgement immediately so cloud workers guarantee delivery before idling
+    email_dispatched = False
+    try:
+        email_dispatched = send_complaint_acknowledgement(complaint_payload)
+        print(f"[main] Complaint #{complaint.id} acknowledgement dispatched: {email_dispatched} to '{complaint.citizen_contact}'")
+    except Exception as mail_err:
+        print(f"[main] Complaint #{complaint.id} email dispatch encountered error: {mail_err}")
+
+    return _to_out(complaint, email_dispatched=email_dispatched)
 
 
-def _to_out(c: models.Complaint) -> schemas.ComplaintOut:
+def _to_out(c: models.Complaint, email_dispatched: Optional[bool] = None) -> schemas.ComplaintOut:
     head = get_department_head(c.category)
     return schemas.ComplaintOut(
         id=c.id,
         citizen_name=c.citizen_name,
+        citizen_contact=c.citizen_contact,
         description=c.description,
         original_language=c.original_language,
         translated_description=c.translated_description,
@@ -287,7 +295,26 @@ def _to_out(c: models.Complaint) -> schemas.ComplaintOut:
         detected_objects=c.detected_objects,
         image_path=c.image_path,
         created_at=c.created_at,
+        email_dispatched=email_dispatched,
     )
+
+
+@app.post("/test-email")
+def test_email(to: str = "alesaisriramkumar@gmail.com"):
+    """Instant test endpoint to verify email delivery from Render or local server."""
+    payload = {
+        "id": 8888,
+        "citizen_name": "Email Diagnostic Test",
+        "citizen_contact": to,
+        "category": "traffic",
+        "priority": "High",
+        "department_name": "Traffic Management Department",
+        "address": "Diagnostic Run, Hyderabad",
+        "description": f"Verification test email sent to {to}",
+        "ai_response": "Test verification email dispatched successfully.",
+    }
+    sent = send_complaint_acknowledgement(payload)
+    return {"status": "success" if sent else "failed", "recipient": to, "sent": sent}
 
 
 @app.get("/complaints", response_model=List[schemas.ComplaintOut])

@@ -357,16 +357,24 @@ def send_complaint_acknowledgement(complaint) -> bool:
 
     for port, use_ssl in attempts:
         try:
-            print(f"[mailservice] Connecting to {host}:{port} ({'SSL' if use_ssl else 'STARTTLS'})...")
+            print(f"[mailservice] Connecting to {host}:{port} ({'SSL' if use_ssl else 'STARTTLS'}) for #{cid}...")
             smtp_class = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
-            with smtp_class(host, port, timeout=12) as smtp:
+            with smtp_class(host, port, timeout=25) as smtp:
                 smtp.ehlo()
                 if not use_ssl:
                     smtp.starttls()
                     smtp.ehlo()
                 if username and password:
                     smtp.login(username, password)
-                smtp.send_message(message)
+
+                # Ensure envelope recipients are explicitly provided
+                all_recipients = [primary_to]
+                if bcc_sender and bcc_sender.lower() != primary_to.lower():
+                    all_recipients.append(bcc_sender)
+
+                print(f"[mailservice] Sending message to envelope recipients: {all_recipients}")
+                smtp.send_message(message, from_addr=sender, to_addrs=all_recipients)
+
             print(f"[mailservice] [SUCCESS] Notification email dispatched for #{cid} to {primary_to}" + (f" (BCC: {bcc_sender})" if bcc_sender else "") + f" via {host}:{port}!")
             logger.info("SMTP acknowledgement sent successfully for complaint %s to %s via %s:%s", cid, primary_to, host, port)
             return True
@@ -374,5 +382,5 @@ def send_complaint_acknowledgement(complaint) -> bool:
             print(f"[mailservice] [WARNING] Attempt via {host}:{port} failed: {exc}")
             logger.warning("SMTP attempt via %s:%s failed: %s", host, port, exc)
 
-    print(f"[mailservice] [ERROR] All SMTP connection attempts failed for complaint #{cid}.")
+    print(f"[mailservice] [ERROR] All SMTP connection attempts failed for complaint #{cid} (recipient: {primary_to}).")
     return False

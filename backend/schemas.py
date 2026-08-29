@@ -17,6 +17,7 @@ class ComplaintCreate(BaseModel):
 class ComplaintOut(BaseModel):
     id: int
     citizen_name: Optional[str]
+    citizen_contact: Optional[str] = None
     description: str
     original_language: Optional[str] = "en"
     translated_description: Optional[str]
@@ -34,6 +35,7 @@ class ComplaintOut(BaseModel):
     detected_objects: Optional[str]
     image_path: Optional[str]
     created_at: datetime.datetime
+    email_dispatched: Optional[bool] = None
 
     class Config:
         from_attributes = True
