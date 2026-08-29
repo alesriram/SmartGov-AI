@@ -49,6 +49,14 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
+@app.on_event("startup")
+def on_startup():
+    try:
+        from seed_data import seed
+        seed()
+    except Exception as e:
+        print("Startup database seed notice:", e)
+
 
 @app.get("/")
 def root():
