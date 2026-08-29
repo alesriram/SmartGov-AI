@@ -247,23 +247,27 @@ def _build_html_email(complaint, head: dict) -> str:
 
 
 def send_complaint_acknowledgement(complaint) -> bool:
-    """Send a rich, stylish HTML acknowledgement with Department Head details."""
-    recipient = complaint.citizen_contact
+    """Send a rich, stylish HTML acknowledgement with Department Head details.
+    
+    Tries Port 465 (direct SSL) first for maximum cloud firewall compatibility
+    (especially on Render/AWS/GCP), then falls back to Port 587 (STARTTLS).
+    """
+    recipient = (getattr(complaint, "citizen_contact", None) or "").strip()
     if not _is_email_address(recipient):
+        print(f"[mailservice] Recipient '{recipient}' is not a valid email address; skipping.")
         return False
 
-    username = (os.getenv("SMTP_USERNAME") or os.getenv("EMAIL_USER") or "").strip()
-    password = (os.getenv("SMTP_PASSWORD") or os.getenv("EMAIL_PASS") or "").strip()
+    username = (os.getenv("SMTP_USERNAME") or os.getenv("EMAIL_USER") or os.getenv("MAIL_USERNAME") or "").strip()
+    password = (os.getenv("SMTP_PASSWORD") or os.getenv("EMAIL_PASS") or os.getenv("MAIL_PASSWORD") or "").strip()
     host = (os.getenv("SMTP_HOST") or ("smtp.gmail.com" if "@gmail.com" in username.lower() else "")).strip()
     sender = (os.getenv("SMTP_FROM") or username).strip()
-    if not host or not sender:
-        logger.info("SMTP is not configured; skipping complaint acknowledgement")
+
+    if not host or not sender or not password:
+        print(f"[mailservice] ⚠️ SMTP credentials incomplete (host='{host}', sender='{sender}', has_password={bool(password)}). Set SMTP_USERNAME and SMTP_PASSWORD in Render Environment.")
+        logger.warning("SMTP credentials incomplete; skipping email acknowledgement")
         return False
 
     head = get_department_head(getattr(complaint, "category", None))
-
-    port = int(os.getenv("SMTP_PORT", "587"))
-    use_ssl = os.getenv("SMTP_USE_SSL", "false").lower() == "true"
     subject = f"🏛️ [Ticket #{complaint.id}] Grievance Registered: {getattr(complaint, 'category', 'Civic Issue').replace('_', ' ').title()}"
 
     message = EmailMessage()
@@ -275,19 +279,19 @@ def send_complaint_acknowledgement(complaint) -> bool:
     plain_text = (
         f"SmartGov Civic Intelligence - Official Acknowledgement\n"
         f"----------------------------------------------------\n"
-        f"Hello {complaint.citizen_name or 'Citizen'},\n\n"
+        f"Hello {getattr(complaint, 'citizen_name', None) or 'Citizen'},\n\n"
         f"Your grievance has been registered successfully.\n\n"
         f"Ticket Number: #{complaint.id}\n"
-        f"Category: {complaint.category or 'General'}\n"
-        f"Priority: {complaint.priority.value if hasattr(complaint.priority, 'value') else complaint.priority}\n"
-        f"Assigned Department: {complaint.department.name if getattr(complaint, 'department', None) else 'Municipal Department'}\n\n"
+        f"Category: {getattr(complaint, 'category', 'General')}\n"
+        f"Priority: {getattr(complaint, 'priority', 'Normal')}\n"
+        f"Assigned Department: {getattr(complaint, 'department', None).name if getattr(complaint, 'department', None) else 'Municipal Department'}\n\n"
         f"--- DEPARTMENT LEADERSHIP & ESCALATION ---\n"
         f"Department Head: {head['name']}\n"
         f"Designation: {head['title']}\n"
         f"Official Email: {head['email']}\n"
         f"Helpline: {head['phone']}\n"
         f"Zonal Office: {head['office']}\n\n"
-        f"Reported Issue: \"{complaint.description}\"\n\n"
+        f"Reported Issue: \"{getattr(complaint, 'description', '')}\"\n\n"
         f"Our field teams will address your grievance in accordance with municipal SLAs.\n"
         f"24/7 Citizen Helpline: 1800-425-SMART\n"
     )
@@ -297,20 +301,36 @@ def send_complaint_acknowledgement(complaint) -> bool:
     html_content = _build_html_email(complaint, head)
     message.add_alternative(html_content, subtype="html")
 
-    try:
-        smtp_class = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
-        logger.info("Attempting SMTP send for complaint %s to %s via %s:%s", complaint.id, recipient, host, port)
-        with smtp_class(host, port, timeout=10) as smtp:
-            smtp.ehlo()
-            if not use_ssl:
-                smtp.starttls()
+    # Determine primary and fallback ports
+    # Port 465 (SSL) is standard for cloud providers (like Render) that restrict port 587/25
+    custom_port = os.getenv("SMTP_PORT")
+    attempts = []
+    if custom_port:
+        p = int(custom_port)
+        attempts.append((p, p == 465))
+    else:
+        # Default: Try 465 SSL first, then 587 STARTTLS
+        attempts.append((465, True))
+        attempts.append((587, False))
+
+    for port, use_ssl in attempts:
+        try:
+            print(f"[mailservice] Connecting to {host}:{port} ({'SSL' if use_ssl else 'STARTTLS'})...")
+            smtp_class = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
+            with smtp_class(host, port, timeout=12) as smtp:
                 smtp.ehlo()
-            if username and password:
-                logger.info("SMTP login for complaint %s using %s", complaint.id, username)
-                smtp.login(username, password)
-            smtp.send_message(message)
-        logger.info("SMTP acknowledgement sent successfully for complaint %s", complaint.id)
-        return True
-    except (OSError, smtplib.SMTPException, ValueError) as exc:
-        logger.exception("Failed to send acknowledgement for complaint %s. Error: %s", complaint.id, exc)
-        return False
+                if not use_ssl:
+                    smtp.starttls()
+                    smtp.ehlo()
+                if username and password:
+                    smtp.login(username, password)
+                smtp.send_message(message)
+            print(f"[mailservice] ✓ Acknowledgement email successfully sent to {recipient} via {host}:{port}!")
+            logger.info("SMTP acknowledgement sent successfully for complaint %s to %s via %s:%s", complaint.id, recipient, host, port)
+            return True
+        except Exception as exc:
+            print(f"[mailservice] ⚠️ Attempt via {host}:{port} failed: {exc}")
+            logger.warning("SMTP attempt via %s:%s failed: %s", host, port, exc)
+
+    print(f"[mailservice] ❌ All SMTP connection attempts failed for recipient {recipient}.")
+    return False

@@ -7,7 +7,7 @@ import uuid
 from collections import Counter
 from typing import List, Optional
 
-from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
@@ -183,6 +183,7 @@ def assistant_chat(payload: dict = Body(...), db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 @app.post("/complaints", response_model=schemas.ComplaintOut)
 async def submit_complaint(
+    background_tasks: BackgroundTasks,
     description: str = Form(...),
     citizen_name: Optional[str] = Form(None),
     citizen_contact: Optional[str] = Form(None),
@@ -247,7 +248,7 @@ async def submit_complaint(
     db.add(complaint)
     db.commit()
     db.refresh(complaint)
-    send_complaint_acknowledgement(complaint)
+    background_tasks.add_task(send_complaint_acknowledgement, complaint)
 
     return _to_out(complaint)
 
