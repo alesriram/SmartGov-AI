@@ -17,15 +17,9 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USERNAME
+      - key: EMAIL_USER
         sync: false
-      - key: SMTP_PASSWORD
-        sync: false
-      - key: SMTP_FROM
+      - key: EMAIL_PASS
         sync: false
 
   # -------------------------------------------------------------
@@ -34,6 +28,8 @@ services:
   - type: web
     name: smartcity-frontend
     runtime: static
+    plan: free
+    region: oregon
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
@@ -46,4 +42,4 @@ services:
         fromService:
           type: web
           name: smartcity-backend
-          property: url
+          property: host

@@ -58,6 +58,7 @@ def on_startup():
         print("Startup database seed notice:", e)
 
 
+
 @app.get("/")
 def root():
     return {
