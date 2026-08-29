@@ -54,8 +54,38 @@ export default function App() {
       return "overview";
     }
   });
+  const [rememberMe, setRememberMe] = useState(() => {
+    try {
+      const val = localStorage.getItem("smartgov-remember-me");
+      return val !== "false";
+    } catch {
+      return true;
+    }
+  });
+  const [savedCredentials, setSavedCredentials] = useState(() => {
+    try {
+      const saved = localStorage.getItem("smartgov-saved-credentials");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [authMode, setAuthMode] = useState("signin");
-  const [authForm, setAuthForm] = useState(emptyForm);
+  const [authForm, setAuthForm] = useState(() => {
+    try {
+      const saved = localStorage.getItem("smartgov-saved-credentials");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          fullName: parsed.fullName || "",
+          email: parsed.email || "",
+          password: parsed.password || "",
+          confirmPassword: "",
+        };
+      }
+    } catch {}
+    return emptyForm;
+  });
   const [authError, setAuthError] = useState("");
   const [registeredUsers, setRegisteredUsers] = useState(() => {
     try {
@@ -191,6 +221,13 @@ export default function App() {
         }
         return [...current, nextUser];
       });
+
+      if (rememberMe) {
+        localStorage.setItem("smartgov-remember-me", "true");
+        localStorage.setItem("smartgov-saved-credentials", JSON.stringify(nextUser));
+        setSavedCredentials(nextUser);
+      }
+
       setCurrentUser(nextUser);
       setAuthError("");
       setIsAuthenticated(true);
@@ -203,13 +240,49 @@ export default function App() {
     );
 
     if (demoMatch || matchedUser) {
-      setCurrentUser(demoMatch ? DEMO_USER : matchedUser);
+      const loggedUser = demoMatch ? DEMO_USER : matchedUser;
+      if (rememberMe) {
+        localStorage.setItem("smartgov-remember-me", "true");
+        localStorage.setItem("smartgov-saved-credentials", JSON.stringify(loggedUser));
+        setSavedCredentials(loggedUser);
+      } else {
+        localStorage.setItem("smartgov-remember-me", "false");
+        localStorage.removeItem("smartgov-saved-credentials");
+        setSavedCredentials(null);
+      }
+      setCurrentUser(loggedUser);
       setIsAuthenticated(true);
       setAuthError("");
       return;
     }
 
     setAuthError("Invalid email or password. Please try again.");
+  };
+
+  const handleFastLogin = () => {
+    if (!savedCredentials) return;
+    const email = normalizeEmail(savedCredentials.email);
+    const password = savedCredentials.password;
+
+    const demoMatch = email === normalizeEmail(DEMO_USER.email) && password === DEMO_USER.password;
+    const matchedUser = registeredUsers.find(
+      (user) => normalizeEmail(user.email) === email && user.password === password
+    );
+
+    if (demoMatch || matchedUser) {
+      const loggedUser = demoMatch ? DEMO_USER : matchedUser;
+      setCurrentUser(loggedUser);
+      setIsAuthenticated(true);
+      setAuthError("");
+    } else {
+      setAuthForm({
+        fullName: savedCredentials.fullName || "",
+        email: savedCredentials.email || "",
+        password: savedCredentials.password || "",
+        confirmPassword: "",
+      });
+      setAuthError("Account details recognized. Click Login below to sign in.");
+    }
   };
 
   const openProfile = () => {
@@ -316,6 +389,23 @@ export default function App() {
                 </button>
               </div>
 
+              {authMode === "signin" && savedCredentials?.email && (
+                <div className="fast-login-card">
+                  <div className="fast-login-info">
+                    <div className="fast-login-badge">⚡ Recognized Account</div>
+                    <div className="fast-login-name">{savedCredentials.fullName || "Citizen"}</div>
+                    <div className="fast-login-email">{savedCredentials.email}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-primary fast-login-btn"
+                    onClick={handleFastLogin}
+                  >
+                    1-Click Log In →
+                  </button>
+                </div>
+              )}
+
               <form className="auth-form" onSubmit={handleAuthSubmit}>
                 {authMode === "signup" && (
                   <label className="field auth-field">
@@ -368,11 +458,54 @@ export default function App() {
                 <div className="auth-meta">
                   {authMode === "signin" && (
                     <label className="remember-me">
-                      <input type="checkbox" defaultChecked />
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setRememberMe(checked);
+                          if (!checked) {
+                            localStorage.setItem("smartgov-remember-me", "false");
+                            localStorage.removeItem("smartgov-saved-credentials");
+                            setSavedCredentials(null);
+                          } else {
+                            localStorage.setItem("smartgov-remember-me", "true");
+                            if (authForm.email && authForm.password) {
+                              const creds = { fullName: authForm.fullName, email: authForm.email, password: authForm.password };
+                              localStorage.setItem("smartgov-saved-credentials", JSON.stringify(creds));
+                              setSavedCredentials(creds);
+                            }
+                          }
+                        }}
+                      />
                       <span>Remember me</span>
                     </label>
                   )}
-                  {authMode === "signin" && <button type="button" className="text-btn">Forgot password?</button>}
+                  {authMode === "signin" && (
+                    <button
+                      type="button"
+                      className="text-btn"
+                      onClick={() => {
+                        const email = normalizeEmail(authForm.email);
+                        if (!email) {
+                          setAuthError("Please type your email above first.");
+                          return;
+                        }
+                        const found = registeredUsers.find((u) => normalizeEmail(u.email) === email);
+                        if (found) {
+                          alert(`Account found for ${found.fullName || email}!\nYour password is: ${found.password}`);
+                          setAuthForm((f) => ({ ...f, password: found.password }));
+                        } else if (email === normalizeEmail(DEMO_USER.email)) {
+                          alert(`Demo Operator password is: ${DEMO_USER.password}`);
+                          setAuthForm((f) => ({ ...f, password: DEMO_USER.password }));
+                        } else {
+                          setAuthError("No account found for this email. Please switch to Sign Up.");
+                        }
+                      }}
+                    >
+                      Forgot password?
+                    </button>
+                  )}
                 </div>
 
                 {authError && <div className="form-error auth-error">{authError}</div>}

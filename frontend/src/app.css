@@ -720,6 +720,71 @@
   color: #118d95;
   font-weight: 600;
   padding: 0;
+  cursor: pointer;
+}
+
+.fast-login-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: linear-gradient(135deg, rgba(17, 128, 134, 0.08) 0%, rgba(47, 209, 184, 0.12) 100%);
+  border: 1px solid rgba(17, 128, 134, 0.22);
+  border-radius: 14px;
+  padding: 12px 16px;
+  margin-bottom: 6px;
+  box-shadow: 0 4px 14px rgba(17, 128, 134, 0.06);
+}
+
+.fast-login-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fast-login-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #0d6b70;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fast-login-name {
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: #1a2d38;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fast-login-email {
+  font-size: 0.8rem;
+  color: #607274;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fast-login-btn {
+  white-space: nowrap;
+  padding: 8px 14px !important;
+  font-size: 0.85rem !important;
+  font-weight: 700 !important;
+  border-radius: 9px !important;
+  flex-shrink: 0;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(17, 128, 134, 0.25);
+  transition: transform 0.15s ease;
+}
+
+.fast-login-btn:hover {
+  transform: translateY(-1px);
 }
 
 .auth-error {
