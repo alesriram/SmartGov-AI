@@ -25,11 +25,9 @@ services:
   # -------------------------------------------------------------
   # 2. REACT VITE FRONTEND (Render Free Static Site)
   # -------------------------------------------------------------
-  - type: web
+  - type: static
     name: smartcity-frontend
-    runtime: static
     plan: free
-    region: oregon
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
