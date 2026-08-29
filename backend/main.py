@@ -59,7 +59,7 @@ def on_startup():
 
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return {
         "message": "AI Smart City Complaint Management Platform API",
@@ -299,7 +299,7 @@ def _to_out(c: models.Complaint, email_dispatched: Optional[bool] = None) -> sch
     )
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health_check():
     """Ultra-fast keepalive and monitoring endpoint for UptimeRobot and Render."""
     return {"status": "healthy", "service": "smartcity-backend", "time": datetime.datetime.utcnow().isoformat()}
