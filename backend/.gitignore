@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.env
+smartcity.db
+uploads/*
+!uploads/.gitkeep

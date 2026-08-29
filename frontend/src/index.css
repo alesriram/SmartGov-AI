@@ -1,0 +1,53 @@
+:root {
+  /* --- Coastal civic ops theme --- */
+  --bg: #e8f5f4;
+  --panel: #f5fbfb;
+  --panel-raised: #ffffff;
+  --border: #d8e7ea;
+  --border-soft: #e4f0f2;
+  --text-primary: #18313d;
+  --text-secondary: #496576;
+  --text-muted: #6d8490;
+
+  --signal-amber: #efaf4a;
+  --signal-amber-dim: #fdf1dc;
+  --civic-teal: #0ea7a8;
+  --civic-teal-dim: rgba(14, 167, 168, 0.12);
+  --route-blue: #4d9ad1;
+  --danger: #dd5a4d;
+  --danger-dim: #fde7e3;
+
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --font-body: "Inter", -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", monospace;
+
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  background:
+    radial-gradient(1200px 650px at 15% -10%, rgba(71, 194, 197, 0.18), transparent 50%),
+    linear-gradient(180deg, #0d6370 0%, #0b5c6d 20%, #0f7d84 100%);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--civic-teal-dim); color: var(--text-primary); }
+a { color: inherit; }
+button { font-family: inherit; cursor: pointer; }
+.mono { font-family: var(--font-mono); }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+:focus-visible { outline: 2px solid var(--civic-teal); outline-offset: 2px; }
