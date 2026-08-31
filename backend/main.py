@@ -77,6 +77,24 @@ def root():
     }
 
 
+@app.post("/assistant/translate")
+def translate_text_endpoint(payload: dict = Body(...)):
+    """
+    Translates citizen complaint text from Telugu, Tinglish, Hindi, Hinglish, etc.
+    into clean, fluent English using high-accuracy AI translation.
+    """
+    from nlp_module.translator import translate_civic_text
+    text = (payload or {}).get("text", "").strip()
+    source_lang = (payload or {}).get("source_lang", "auto").strip()
+    if not text:
+        return {
+            "original_text": "",
+            "detected_language": "English",
+            "translated_text": "",
+        }
+    return translate_civic_text(text, source_lang)
+
+
 @app.get("/assistant/config")
 def assistant_get_config():
     """Returns active LLM provider, models, and key configuration status."""
@@ -90,8 +108,23 @@ def assistant_save_config(payload: dict = Body(...)):
     api_key = (payload or {}).get("api_key", "").strip()
     model = (payload or {}).get("model")
 
-    if not provider or not api_key:
-        raise HTTPException(400, "Both 'provider' and 'api_key' are required")
+    if not provider:
+        raise HTTPException(400, "Provider is required")
+
+    # If api_key is not sent, check if a key already exists in environment
+    key_var_map = {
+        "groq": "GROQ_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "openai": "OPENAI_API_KEY",
+    }
+    key_var = key_var_map.get(provider)
+    if not api_key and key_var:
+        api_key = (os.getenv(key_var) or "").strip()
+        if not api_key and provider == "gemini":
+            api_key = (os.getenv("GOOGLE_API_KEY") or "").strip()
+
+    if not api_key:
+        raise HTTPException(400, f"No API key found for {provider.upper()}. Please provide an API key.")
 
     test_res = test_llm_connection(provider=provider, api_key=api_key, model=model)
     if not test_res.get("success"):
@@ -100,7 +133,7 @@ def assistant_save_config(payload: dict = Body(...)):
     save_res = save_llm_config(provider=provider, api_key=api_key, model=model)
     return {
         "success": True,
-        "message": f"Successfully connected to {provider.upper()}!",
+        "message": f"Successfully activated {provider.upper()}!",
         "provider": provider,
         "model": save_res.get("model"),
         "test_reply": test_res.get("message"),
@@ -115,6 +148,7 @@ def assistant_chat(payload: dict = Body(...), db: Session = Depends(get_db)):
 
     clean_q = str(question).strip()
     preferred_provider = (payload or {}).get("provider")
+    preferred_model = (payload or {}).get("model")
 
     # 1. Fetch dashboard stats
     dashboard = dashboard_stats(db=db)
@@ -169,6 +203,7 @@ def assistant_chat(payload: dict = Body(...), db: Session = Depends(get_db)):
         hotspots=hotspots_data,
         query_matched=query_matched,
         preferred_provider=preferred_provider,
+        preferred_model=preferred_model,
     )
 
     return {

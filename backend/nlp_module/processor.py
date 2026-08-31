@@ -253,22 +253,13 @@ def _rule_based_multilingual_nlp(description: str) -> Dict:
         "numbers": re.findall(r"\b\d+\b", description),
     }
 
-    # Synthesize translated description if Indian language detected
-    translated = description
-    cat_names = {
-        "roads": "road and pothole repair",
-        "sanitation": "garbage collection and solid waste management",
-        "water_supply": "drinking water supply and leakage remediation",
-        "electricity": "street lighting and electrical grid maintenance",
-        "traffic": "traffic flow and parking regulation",
-        "public_health": "public health and vector control hazard",
-        "general": "civic service resolution",
-    }
-    if detected_lang != "English":
-        translated = f"Citizen reported {cat_names.get(category, 'civic issue')} [translated from {detected_lang}]: \"{description}\""
+    # High-accuracy civic translation
+    from nlp_module.translator import translate_civic_text
+    trans_res = translate_civic_text(description, detected_lang)
+    translated = trans_res.get("translated_text") or description
 
-    sentences = re.split(r'(?<=[.!?])\s+', description.strip())
-    summary = sentences[0] if sentences else description
+    sentences = re.split(r'(?<=[.!?])\s+', translated.strip())
+    summary = sentences[0] if sentences else translated
     if len(summary) > 200:
         summary = summary[:197] + "..."
 

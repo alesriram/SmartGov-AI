@@ -47,7 +47,7 @@ function formatAssistantMessage(text) {
       return (
         <div key={i} className="msg-bullet">
           <span className="bullet-dot">›</span>
-          <span className="bullet-text">{formatInline(trimmed.replace(/^[•\-\*]\s+/, ""))}</span>
+          <span className="bullet-text">{formatInline(trimmed.replace(/^[•\-*]\s+/, ""))}</span>
         </div>
       );
     }
@@ -141,6 +141,9 @@ export default function AIAgentConsole({ stats, complaints }) {
       if (cfg?.active_provider && cfg.active_provider !== "fallback") {
         setSelectedProvider(cfg.active_provider);
       }
+      if (cfg?.active_model) {
+        setModelInput(cfg.active_model);
+      }
     } catch {
       // Backend offline or endpoint error
     }
@@ -173,7 +176,7 @@ export default function AIAgentConsole({ stats, complaints }) {
     setIsBusy(true);
 
     try {
-      const response = await api.assistantPrompt(trimmed);
+      const response = await api.assistantPrompt(trimmed, selectedProvider, modelInput);
       setMessages((current) => [
         ...current,
         {
@@ -183,7 +186,7 @@ export default function AIAgentConsole({ stats, complaints }) {
           model: response.model,
         },
       ]);
-    } catch (error) {
+    } catch {
       setMessages((current) => [
         ...current,
         {
@@ -197,33 +200,54 @@ export default function AIAgentConsole({ stats, complaints }) {
     }
   };
 
+  const handleQuickProviderChange = async (e) => {
+    const val = e.target.value;
+    const [prov, mod] = val.split(":");
+    setSelectedProvider(prov);
+    setModelInput(mod);
+
+    setLlmConfig((prev) => ({
+      ...prev,
+      active_provider: prov,
+      active_model: mod,
+    }));
+
+    try {
+      await api.saveAssistantConfig({
+        provider: prov,
+        model: mod,
+      });
+      await loadConfig();
+    } catch (err) {
+      console.warn("Could not activate provider in backend:", err);
+    }
+  };
+
   const handleSaveConfig = async (e) => {
     e?.preventDefault();
-    if (!apiKeyInput.trim()) {
-      setTestStatus({ success: false, message: "Please enter a valid API key" });
-      return;
-    }
-
-    setTestStatus({ loading: true, message: `Connecting & verifying ${selectedProvider.toUpperCase()} API key…` });
+    setTestStatus({
+      loading: true,
+      message: `Activating ${selectedProvider.toUpperCase()} (${modelInput || "default model"})...`,
+    });
 
     try {
       const res = await api.saveAssistantConfig({
         provider: selectedProvider,
-        api_key: apiKeyInput.trim(),
+        api_key: apiKeyInput.trim() || undefined,
         model: modelInput.trim() || undefined,
       });
 
       setTestStatus({
         loading: false,
         success: true,
-        message: res.message || `Connected to ${selectedProvider.toUpperCase()} successfully!`,
+        message: res.message || `Switched to ${selectedProvider.toUpperCase()} successfully!`,
       });
       setApiKeyInput("");
       await loadConfig();
       setTimeout(() => {
         setSettingsOpen(false);
         setTestStatus(null);
-      }, 1400);
+      }, 1200);
     } catch (err) {
       const errMsg = err.response?.data?.detail || err.message || "Validation failed";
       setTestStatus({
@@ -263,7 +287,30 @@ export default function AIAgentConsole({ stats, complaints }) {
             <div>
               <div className="copilot-header-topline">
                 <h3>SmartGov Copilot</h3>
-                {llmConfig && renderProviderBadge(llmConfig.active_provider, llmConfig.active_model)}
+                <div className="copilot-quick-model-select-wrapper">
+                  <select
+                    className={`copilot-quick-model-select ${selectedProvider}`}
+                    value={`${selectedProvider}:${modelInput || (selectedProvider === "groq" ? "openai/gpt-oss-120b" : selectedProvider === "gemini" ? "gemini-1.5-flash" : "gpt-4o-mini")}`}
+                    onChange={handleQuickProviderChange}
+                    title="Switch active LLM model on the fly"
+                  >
+                    <optgroup label="⚡ Groq Cloud">
+                      <option value="groq:openai/gpt-oss-120b">⚡ Groq · GPT-OSS 120B (Ultra-Fast)</option>
+                      <option value="groq:llama-3.3-70b-versatile">⚡ Groq · Llama 3.3 70B</option>
+                      <option value="groq:llama-3.1-8b-instant">⚡ Groq · Llama 3.1 8B</option>
+                    </optgroup>
+                    <optgroup label="✨ Google Gemini">
+                      <option value="gemini:gemini-3.6-flash">✨ Gemini · 3.6 Flash (Recommended)</option>
+                      <option value="gemini:gemini-2.5-flash-lite">✨ Gemini · 2.5 Flash Lite</option>
+                      <option value="gemini:gemini-2.5-pro">✨ Gemini · 2.5 Pro</option>
+                      <option value="gemini:gemini-flash-latest">✨ Gemini · Flash Latest</option>
+                    </optgroup>
+                    <optgroup label="🤖 OpenAI">
+                      <option value="openai:gpt-4o-mini">🤖 OpenAI · GPT-4o Mini</option>
+                      <option value="openai:gpt-4o">🤖 OpenAI · GPT-4o</option>
+                    </optgroup>
+                  </select>
+                </div>
               </div>
               <span className="copilot-subtitle">AI-powered civic operations director & telemetry analyzer</span>
             </div>
@@ -459,7 +506,7 @@ export default function AIAgentConsole({ stats, complaints }) {
                 className={`provider-tab ${selectedProvider === "gemini" ? "active" : ""}`}
                 onClick={() => {
                   setSelectedProvider("gemini");
-                  setModelInput(llmConfig?.gemini_model || "gemini-1.5-flash");
+                  setModelInput(llmConfig?.gemini_model || "gemini-3.6-flash");
                   setTestStatus(null);
                 }}
               >
@@ -467,7 +514,7 @@ export default function AIAgentConsole({ stats, complaints }) {
                   <strong>✨ Google Gemini</strong>
                   <span className="pill-free">Google AI · Free</span>
                 </div>
-                <small>Gemini 1.5 Flash & 2.0 Flash</small>
+                <small>Gemini 3.6 Flash & 2.5 Pro</small>
               </button>
 
               <button
@@ -536,21 +583,22 @@ export default function AIAgentConsole({ stats, complaints }) {
                   {selectedProvider === "groq" && (
                     <>
                       <option value="openai/gpt-oss-120b">openai/gpt-oss-120b (Flagship 120B, Ultra-Fast & Detailed)</option>
-                      <option value="qwen/qwen3.6-27b">qwen/qwen3.6-27b (27B Parameter Model)</option>
-                      <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (Lightweight & Instant)</option>
+                      <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Llama 3.3 70B Versatile)</option>
+                      <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Lightweight & Instant)</option>
                     </>
                   )}
                   {selectedProvider === "gemini" && (
                     <>
-                      <option value="gemini-3.6-flash">gemini-3.6-flash (Recommended, High Speed & Accuracy)</option>
-                      <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (Fast & Lightweight)</option>
+                      <option value="gemini-3.6-flash">gemini-3.6-flash (Recommended, Google AI High Speed)</option>
+                      <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (Lightweight & Instant)</option>
                       <option value="gemini-2.5-pro">gemini-2.5-pro (In-depth Multimodal Reasoning)</option>
+                      <option value="gemini-flash-latest">gemini-flash-latest (Auto Latest Flash)</option>
                     </>
                   )}
                   {selectedProvider === "openai" && (
                     <>
-                      <option value="gpt-4o-mini">gpt-4o-mini</option>
-                      <option value="gpt-4o">gpt-4o</option>
+                      <option value="gpt-4o-mini">gpt-4o-mini (Fast & Cost Efficient)</option>
+                      <option value="gpt-4o">gpt-4o (Flagship Omni)</option>
                     </>
                   )}
                 </select>
@@ -576,9 +624,9 @@ export default function AIAgentConsole({ stats, complaints }) {
                 <button
                   type="submit"
                   className="btn-primary"
-                  disabled={testStatus?.loading || !apiKeyInput.trim()}
+                  disabled={testStatus?.loading}
                 >
-                  {testStatus?.loading ? "Verifying…" : "Save & Verify Connection"}
+                  {testStatus?.loading ? "Activating…" : "Activate Model & Save"}
                 </button>
               </div>
             </form>

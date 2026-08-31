@@ -1,5 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
-import { api } from "../api";
+import { useState, useMemo } from "react";
 
 const PRIORITY_CLASS = {
   critical: "badge-danger",
@@ -41,7 +40,11 @@ export default function ComplaintHistory({
   const [selectedPriority, setSelectedPriority] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
   const [selectedModalItem, setSelectedModalItem] = useState(null);
-  const [userFilterName, setUserFilterName] = useState(currentUser?.fullName || "Demo Operator");
+
+  // Pagination state (9 items per page - 3x3 grid)
+  const PAGE_SIZE = 9;
+  const [citywidePage, setCitywidePage] = useState(1);
+  const [userPage, setUserPage] = useState(1);
 
   // Format date helper
   const formatDate = (dateStr) => {
@@ -61,35 +64,45 @@ export default function ComplaintHistory({
     return complaints.filter((c) => {
       // Category filter
       if (selectedCategory !== "all" && c.category !== selectedCategory) return false;
+
       // Status filter
       if (selectedStatus !== "all" && c.status !== selectedStatus) return false;
+
       // Priority filter
       if (selectedPriority !== "all" && c.priority !== selectedPriority) return false;
-      // Search term
+
+      // Search query
       if (search.trim()) {
         const q = search.toLowerCase().trim();
-        const idMatch = c.id?.toString().includes(q);
+        const idMatch = c.id?.toString().includes(q) || (`#${c.id}`).includes(q);
         const descMatch = c.description?.toLowerCase().includes(q);
         const addrMatch = c.address?.toLowerCase().includes(q);
-        const nameMatch = c.citizen_name?.toLowerCase().includes(q);
+        const citizenMatch = c.citizen_name?.toLowerCase().includes(q);
         const deptMatch = c.department?.toLowerCase().includes(q);
-        if (!idMatch && !descMatch && !addrMatch && !nameMatch && !deptMatch) return false;
+        const catMatch = c.category?.toLowerCase().includes(q);
+
+        if (!idMatch && !descMatch && !addrMatch && !citizenMatch && !deptMatch && !catMatch) {
+          return false;
+        }
       }
+
       return true;
     }).sort((a, b) => {
-      if (sortBy === "newest") return new Date(b.created_at || 0) - new Date(a.created_at || 0);
-      if (sortBy === "oldest") return new Date(a.created_at || 0) - new Date(b.created_at || 0);
-      if (sortBy === "priority") {
-        const pOrder = { critical: 4, high: 3, medium: 2, low: 1 };
-        return (pOrder[b.priority] || 0) - (pOrder[a.priority] || 0);
+      if (sortBy === "oldest") {
+        return new Date(a.created_at || 0) - new Date(b.created_at || 0);
       }
-      return 0;
+      if (sortBy === "priority") {
+        const priorityWeight = { critical: 4, high: 3, medium: 2, low: 1 };
+        return (priorityWeight[b.priority] || 0) - (priorityWeight[a.priority] || 0);
+      }
+      // default: newest
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
   }, [complaints, selectedCategory, selectedStatus, selectedPriority, search, sortBy]);
 
-  // Section 2: User-Specific Complaints
+  // Section 2: User History Grievances (Specific to current logged-in citizen/user)
   const userComplaints = useMemo(() => {
-    const targetName = (userFilterName || currentUser?.fullName || "Demo Operator").toLowerCase().trim();
+    const targetName = (currentUser?.fullName || "Demo Operator").toLowerCase().trim();
     const targetEmail = (currentUser?.email || "").toLowerCase().trim();
 
     return complaints.filter((c) => {
@@ -102,7 +115,20 @@ export default function ComplaintHistory({
         cName.includes("citizen") // Sample seeded citizens for fallback
       );
     });
-  }, [complaints, userFilterName, currentUser]);
+  }, [complaints, currentUser]);
+
+  // Paginated Slices
+  const totalCitywidePages = Math.ceil(filteredCitywide.length / PAGE_SIZE) || 1;
+  const displayedCitywide = useMemo(() => {
+    const start = (citywidePage - 1) * PAGE_SIZE;
+    return filteredCitywide.slice(start, start + PAGE_SIZE);
+  }, [filteredCitywide, citywidePage]);
+
+  const totalUserPages = Math.ceil(userComplaints.length / PAGE_SIZE) || 1;
+  const displayedUserComplaints = useMemo(() => {
+    const start = (userPage - 1) * PAGE_SIZE;
+    return userComplaints.slice(start, start + PAGE_SIZE);
+  }, [userComplaints, userPage]);
 
   // Citywide Stats in current view
   const statsOverview = useMemo(() => {
@@ -112,6 +138,53 @@ export default function ComplaintHistory({
     const inProgress = filteredCitywide.filter((c) => c.status === "in_progress").length;
     return { total, critical, resolved, inProgress };
   }, [filteredCitywide]);
+
+  const renderPaginationBar = (currentPage, totalPages, totalCount, onPageChange) => {
+    if (totalCount === 0) return null;
+
+    return (
+      <div className="pagination-bar">
+        <div className="pagination-info">
+          Showing <strong>{(currentPage - 1) * PAGE_SIZE + 1}</strong> to{" "}
+          <strong>{Math.min(currentPage * PAGE_SIZE, totalCount)}</strong> of{" "}
+          <strong>{totalCount}</strong> grievances
+        </div>
+
+        <div className="pagination-controls">
+          <button
+            type="button"
+            className="page-nav-btn"
+            disabled={currentPage <= 1}
+            onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+          >
+            ← Previous
+          </button>
+
+          <div className="page-numbers-group">
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={`page-num-btn ${p === currentPage ? "active" : ""}`}
+                onClick={() => onPageChange(p)}
+              >
+                Page {p}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            className="page-nav-btn"
+            disabled={currentPage >= totalPages}
+            onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+          >
+            Next →
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="complaint-history-layout">
@@ -130,7 +203,10 @@ export default function ComplaintHistory({
             <button
               type="button"
               className={`sec-toggle-btn ${activeSection === "all_places" ? "active" : ""}`}
-              onClick={() => setActiveSection("all_places")}
+              onClick={() => {
+                setActiveSection("all_places");
+                setCitywidePage(1);
+              }}
             >
               <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
                 <path d="M10 2a6 6 0 00-6 6c0 4.5 6 10 6 10s6-5.5 6-10a6 6 0 00-6-6z" stroke="currentColor" strokeWidth="1.5" />
@@ -143,7 +219,10 @@ export default function ComplaintHistory({
             <button
               type="button"
               className={`sec-toggle-btn ${activeSection === "user_history" ? "active" : ""}`}
-              onClick={() => setActiveSection("user_history")}
+              onClick={() => {
+                setActiveSection("user_history");
+                setUserPage(1);
+              }}
             >
               <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
                 <circle cx="10" cy="7" r="4" stroke="currentColor" strokeWidth="1.5" />
@@ -171,18 +250,33 @@ export default function ComplaintHistory({
               <input
                 type="text"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setCitywidePage(1);
+                }}
                 placeholder="Search by ID (#42), keyword, ward/address, citizen name, or department..."
               />
               {search && (
-                <button type="button" className="search-clear-btn" onClick={() => setSearch("")}>×</button>
+                <button
+                  type="button"
+                  className="search-clear-btn"
+                  onClick={() => {
+                    setSearch("");
+                    setCitywidePage(1);
+                  }}
+                >
+                  ×
+                </button>
               )}
             </div>
 
             <div className="filter-selects-row">
               <select
                 value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
+                onChange={(e) => {
+                  setSelectedCategory(e.target.value);
+                  setCitywidePage(1);
+                }}
                 className="filter-select"
               >
                 {CATEGORIES.map((c) => (
@@ -192,7 +286,10 @@ export default function ComplaintHistory({
 
               <select
                 value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
+                onChange={(e) => {
+                  setSelectedStatus(e.target.value);
+                  setCitywidePage(1);
+                }}
                 className="filter-select"
               >
                 <option value="all">All Statuses</option>
@@ -204,7 +301,10 @@ export default function ComplaintHistory({
 
               <select
                 value={selectedPriority}
-                onChange={(e) => setSelectedPriority(e.target.value)}
+                onChange={(e) => {
+                  setSelectedPriority(e.target.value);
+                  setCitywidePage(1);
+                }}
                 className="filter-select"
               >
                 <option value="all">All Priorities</option>
@@ -216,7 +316,10 @@ export default function ComplaintHistory({
 
               <select
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
+                onChange={(e) => {
+                  setSortBy(e.target.value);
+                  setCitywidePage(1);
+                }}
                 className="filter-select"
               >
                 <option value="newest">Newest First</option>
@@ -239,7 +342,7 @@ export default function ComplaintHistory({
 
           {/* Complaints Grid */}
           <div className="citywide-grid">
-            {filteredCitywide.map((c) => (
+            {displayedCitywide.map((c) => (
               <div key={c.id} className="citywide-card">
                 <div className="card-top">
                   <div className="card-id-row">
@@ -306,6 +409,7 @@ export default function ComplaintHistory({
                     setSelectedCategory("all");
                     setSelectedStatus("all");
                     setSelectedPriority("all");
+                    setCitywidePage(1);
                   }}
                 >
                   Reset All Filters
@@ -313,6 +417,9 @@ export default function ComplaintHistory({
               </div>
             )}
           </div>
+
+          {/* Section 1 Pagination Bar */}
+          {renderPaginationBar(citywidePage, totalCitywidePages, filteredCitywide.length, setCitywidePage)}
         </div>
       )}
 
@@ -372,7 +479,7 @@ export default function ComplaintHistory({
 
           {/* User Complaints List with Progress Stepper */}
           <div className="user-complaints-list">
-            {userComplaints.map((c) => {
+            {displayedUserComplaints.map((c) => {
               const isResolved = c.status === "resolved";
               const isProgress = c.status === "in_progress" || isResolved;
               const isRouted = c.status === "routed" || isProgress;
@@ -485,6 +592,9 @@ export default function ComplaintHistory({
               </div>
             )}
           </div>
+
+          {/* Section 2 Pagination Bar */}
+          {renderPaginationBar(userPage, totalUserPages, userComplaints.length, setUserPage)}
         </div>
       )}
 

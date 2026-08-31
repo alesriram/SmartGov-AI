@@ -10,7 +10,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 load_dotenv(ENV_PATH)
 
-DEFAULT_GROQ_MODEL = "qwen/qwen3.6-27b"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 HTTP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SmartGovAI/1.0"
@@ -30,12 +30,8 @@ def get_llm_status() -> Dict[str, Any]:
     configured_provider = os.getenv("LLM_PROVIDER", "auto").strip().lower()
 
     # Determine active provider
-    if configured_provider == "groq" and groq_key:
-        active = "groq"
-    elif configured_provider == "gemini" and gemini_key:
-        active = "gemini"
-    elif configured_provider == "openai" and openai_key:
-        active = "openai"
+    if configured_provider in ["groq", "gemini", "openai"]:
+        active = configured_provider
     elif groq_key:
         active = "groq"
     elif gemini_key:
@@ -72,8 +68,8 @@ def get_llm_status() -> Dict[str, Any]:
     }
 
 
-def save_llm_config(provider: str, api_key: str, model: Optional[str] = None) -> Dict[str, Any]:
-    """Updates the .env file with the specified LLM provider and API key."""
+def save_llm_config(provider: str, api_key: Optional[str] = None, model: Optional[str] = None) -> Dict[str, Any]:
+    """Updates the .env file with the specified LLM provider and API key / model."""
     provider = provider.lower().strip()
     key_var_map = {
         "groq": ("GROQ_API_KEY", "GROQ_MODEL", model or DEFAULT_GROQ_MODEL),
@@ -85,8 +81,13 @@ def save_llm_config(provider: str, api_key: str, model: Optional[str] = None) ->
         return {"success": False, "error": f"Unsupported provider: {provider}"}
 
     key_var, model_var, default_mod = key_var_map[provider]
-    actual_model = (model or default_mod).strip()
-    api_key = api_key.strip()
+    actual_model = (model or os.getenv(model_var) or default_mod).strip()
+
+    # If api_key was not provided, keep current key
+    if not api_key:
+        api_key = os.getenv(key_var, "").strip()
+    else:
+        api_key = api_key.strip()
 
     # Read existing .env
     lines = []
@@ -108,22 +109,26 @@ def save_llm_config(provider: str, api_key: str, model: Optional[str] = None) ->
             new_lines.append(f"{var_name}={val}\n")
         return new_lines
 
-    lines = set_or_append(key_var, api_key, lines)
-    lines = set_or_append(model_var, actual_model, lines)
+    if api_key:
+        lines = set_or_append(key_var, api_key, lines)
+    if actual_model:
+        lines = set_or_append(model_var, actual_model, lines)
     lines = set_or_append("LLM_PROVIDER", provider, lines)
 
     with open(ENV_PATH, "w", encoding="utf-8") as f:
         f.writelines(lines)
 
     # Update runtime environment
-    os.environ[key_var] = api_key
-    os.environ[model_var] = actual_model
+    if api_key:
+        os.environ[key_var] = api_key
+    if actual_model:
+        os.environ[model_var] = actual_model
     os.environ["LLM_PROVIDER"] = provider
     reload_env()
 
     return {
         "success": True,
-        "message": f"Successfully saved {provider.upper()} configuration (Model: {actual_model})",
+        "message": f"Successfully activated {provider.upper()} (Model: {actual_model})",
         "provider": provider,
         "model": actual_model,
     }
@@ -139,7 +144,7 @@ def call_groq_api(prompt: str, system_prompt: str, api_key: str, model: str = DE
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.3,
-        "max_tokens": 2048,
+        "max_tokens": 450,
     }
 
     req = request.Request(
@@ -162,49 +167,67 @@ def call_groq_api(prompt: str, system_prompt: str, api_key: str, model: str = DE
 
 
 def call_gemini_api(prompt: str, system_prompt: str, api_key: str, model: str = DEFAULT_GEMINI_MODEL) -> str:
-    """Calls Google Gemini Generative Language REST API."""
+    """Calls Google Gemini Generative Language REST API with automatic model fallback."""
     clean_model = model.strip()
     if clean_model.startswith("models/"):
         clean_model = clean_model[len("models/"):]
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
 
-    payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": prompt}],
-            }
-        ],
-        "systemInstruction": {
-            "parts": [{"text": system_prompt}]
-        },
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 2048,
-        },
+    # Map deprecated models to active Google models on v1beta
+    model_aliases = {
+        "gemini-1.5-flash": "gemini-3.6-flash",
+        "gemini-1.5-pro": "gemini-2.5-pro",
+        "gemini-2.0-flash": "gemini-3.6-flash",
     }
+    if clean_model in model_aliases:
+        clean_model = model_aliases[clean_model]
 
-    req = request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "User-Agent": HTTP_USER_AGENT,
-        },
-        method="POST",
-    )
+    def _execute_gemini_call(target_model: str) -> str:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={api_key}"
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": prompt}],
+                }
+            ],
+            "systemInstruction": {
+                "parts": [{"text": system_prompt}]
+            },
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 450,
+            },
+        }
 
-    with request.urlopen(req, timeout=25) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-        candidates = data.get("candidates", [])
-        if not candidates:
-            raise ValueError("Gemini returned empty candidates")
-        parts = candidates[0].get("content", {}).get("parts", [])
-        if not parts or "text" not in parts[0]:
-            raise ValueError("No text part in Gemini response")
-        text = parts[0]["text"].strip()
-        cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-        return cleaned or text
+        req = request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": HTTP_USER_AGENT,
+            },
+            method="POST",
+        )
+
+        with request.urlopen(req, timeout=25) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            candidates = data.get("candidates", [])
+            if not candidates:
+                raise ValueError("Gemini returned empty candidates")
+            parts = candidates[0].get("content", {}).get("parts", [])
+            if not parts or "text" not in parts[0]:
+                raise ValueError("No text part in Gemini response")
+            text = parts[0]["text"].strip()
+            cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+            return cleaned or text
+
+    try:
+        return _execute_gemini_call(clean_model)
+    except error.HTTPError as e:
+        # If Google reports 404 for an older model, fall back automatically to gemini-3.6-flash
+        if e.code == 404 and clean_model != "gemini-3.6-flash":
+            return _execute_gemini_call("gemini-3.6-flash")
+        raise
 
 
 def call_openai_api(prompt: str, system_prompt: str, api_key: str, model: str = DEFAULT_OPENAI_MODEL) -> str:
@@ -217,7 +240,7 @@ def call_openai_api(prompt: str, system_prompt: str, api_key: str, model: str = 
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.3,
-        "max_tokens": 2048,
+        "max_tokens": 450,
     }
 
     req = request.Request(
@@ -456,27 +479,25 @@ def generate_ai_assistant_response(
     hotspots: Optional[List[Dict[str, Any]]] = None,
     query_matched: Optional[List[Dict[str, Any]]] = None,
     preferred_provider: Optional[str] = None,
+    preferred_model: Optional[str] = None,
 ) -> Tuple[str, str, str]:
     """
     Orchestrates LLM inference across Groq, Gemini, and OpenAI with automatic fallback.
     Returns: (response_text, provider_name, model_name)
     """
     reload_env()
-    status = get_llm_status()
 
     # Build rich operational context
     context = _build_rich_context(stats, complaints, departments, hotspots, query_matched)
 
     system_prompt = (
-        "You are SmartGov Copilot, the AI Operations Director for a modern smart city complaint management and predictive analytics platform.\n"
-        "Your mission is to provide accurate, reliable, authoritative, and actionable intelligence to municipal operators, department chiefs, and city leaders.\n\n"
-        "Strict Guidelines for High Accuracy:\n"
-        "1. Ground your answers in the provided Live City Operations Data.\n"
-        "2. When discussing statistics, complaints, departments, or locations, ALWAYS quote exact numbers, department names, and specific complaint IDs (e.g. [#12]) from the context.\n"
-        "3. Never hallucinate fake complaint numbers or statistics that contradict the provided data.\n"
-        "4. Structure your responses with clear Markdown: bold headings, bullet points, and concise executive summaries.\n"
-        "5. When advising on prioritization, distinguish between Immediate Emergencies (0-2 hours), Daily Field Routing, and Long-Term Preventive Operations.\n"
-        "6. For general engineering, municipal code, or urban planning questions, give comprehensive, best-practice answers while relating them to the city's current operations where relevant."
+        "You are SmartGov Copilot, the AI Operations Director for a modern smart city platform.\n"
+        "Your responses must be SHORT, HIGHLY ACCURATE, and naturally include RELEVANT CIVIC EMOJIS.\n\n"
+        "MANDATORY GUIDELINES:\n"
+        "1. BE SHORT & CONCISE: Maximum 2 to 4 bullet points or 1-2 focused sentences. Avoid long-winded introductions, redundant disclaimers, or filler text.\n"
+        "2. USE RELEVANT EMOJIS: Use emojis naturally whenever appropriate (🚨 for critical emergencies, 🚧 for roads/potholes, 💧 for water/leakage, ⚡ for electricity, 🗑️ for waste/sanitation, 📍 for locations/wards, 📊 for stats/telemetry, ⏱️ for SLAs, ✅ for resolved/confirmed).\n"
+        "3. HIGH ACCURACY: Ground every statement in the Live Telemetry below. Quote exact figures and complaint IDs (e.g. [#12]). Never hallucinate fake complaints or numbers.\n"
+        "4. DIRECT ANSWER: Address the operator's query immediately in the very first sentence."
     )
 
     user_prompt = (
@@ -484,12 +505,16 @@ def generate_ai_assistant_response(
         f"--- LIVE CITY OPERATIONS TELEMETRY ---\n"
         f"{context}\n"
         f"--------------------------------------\n\n"
-        f"Please provide an accurate, clear, and actionable response based on the operational data above."
+        f"Please provide a short, accurate, and emoji-rich response based on the operational data above."
     )
 
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     gemini_key = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
     openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+
+    groq_mod = (preferred_model if preferred_provider == "groq" else None) or os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL)
+    gemini_mod = (preferred_model if preferred_provider == "gemini" else None) or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+    openai_mod = (preferred_model if preferred_provider == "openai" else None) or os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
 
     # Order of providers to try
     providers_to_try = []
@@ -497,19 +522,19 @@ def generate_ai_assistant_response(
     pref = (preferred_provider or os.getenv("LLM_PROVIDER", "auto")).strip().lower()
 
     if pref == "groq" and groq_key:
-        providers_to_try.append(("groq", groq_key, os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL)))
+        providers_to_try.append(("groq", groq_key, groq_mod))
     elif pref == "gemini" and gemini_key:
-        providers_to_try.append(("gemini", gemini_key, os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)))
+        providers_to_try.append(("gemini", gemini_key, gemini_mod))
     elif pref == "openai" and openai_key:
-        providers_to_try.append(("openai", openai_key, os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)))
+        providers_to_try.append(("openai", openai_key, openai_mod))
 
     # Add remaining available providers
-    if groq_key and ("groq", groq_key, os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL)) not in providers_to_try:
-        providers_to_try.append(("groq", groq_key, os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL)))
-    if gemini_key and ("gemini", gemini_key, os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)) not in providers_to_try:
-        providers_to_try.append(("gemini", gemini_key, os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)))
-    if openai_key and ("openai", openai_key, os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)) not in providers_to_try:
-        providers_to_try.append(("openai", openai_key, os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)))
+    if groq_key and ("groq", groq_key, groq_mod) not in providers_to_try:
+        providers_to_try.append(("groq", groq_key, groq_mod))
+    if gemini_key and ("gemini", gemini_key, gemini_mod) not in providers_to_try:
+        providers_to_try.append(("gemini", gemini_key, gemini_mod))
+    if openai_key and ("openai", openai_key, openai_mod) not in providers_to_try:
+        providers_to_try.append(("openai", openai_key, openai_mod))
 
     # Try each provider in sequence
     for p_name, p_key, p_model in providers_to_try:

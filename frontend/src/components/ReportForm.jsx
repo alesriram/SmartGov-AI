@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "../api";
 
 const CATEGORY_HINTS = [
@@ -11,9 +11,9 @@ const CATEGORY_HINTS = [
 ];
 
 const SUPPORTED_LANGUAGES = [
-  { code: "auto", label: "🌐 Auto-Detect", speechLang: "en-IN" },
+  { code: "auto", label: "🌐 Auto (Telugu/Hindi/Eng)", speechLang: "te-IN" },
   { code: "te", label: "Telugu (తెలుగు)", speechLang: "te-IN" },
-  { code: "tinglish", label: "Tinglish", speechLang: "en-IN" },
+  { code: "tinglish", label: "Tinglish", speechLang: "te-IN" },
   { code: "hi", label: "Hindi (हिंदी)", speechLang: "hi-IN" },
   { code: "hinglish", label: "Hinglish", speechLang: "hi-IN" },
   { code: "ta", label: "Tamil (தமிழ்)", speechLang: "ta-IN" },
@@ -30,39 +30,39 @@ const DEPARTMENT_HEADS_FALLBACK = {
     office: "Engineering Wing, 2nd Floor, Civic Infrastructure Complex, Hyderabad",
   },
   sanitation: {
-    name: "Smt. Sunitha Reddy, IAS",
-    title: "Additional Commissioner (Solid Waste & Sanitation Management)",
+    name: "Smt. Sunitha Reddy",
+    title: "Director of Solid Waste Management & Public Sanitation",
     email: "sunitha.reddy@smartcity.gov",
     phone: "+91 (040) 2345-8722",
-    office: "Environment & Swachh Directorate, 4th Floor, Municipal HQ, Hyderabad",
+    office: "Sanitation Directorate, 1st Floor, Swachh Bhavan, Hyderabad",
   },
   water_supply: {
-    name: "Er. K. V. Ramanathan",
-    title: "Director of Water Operations & Sewerage Management",
-    email: "kv.ramanathan@smartcity.gov",
+    name: "Er. K. Venkatraman",
+    title: "Executive Director (Drinking Water Supply & Drainage Board)",
+    email: "venkatraman.k@smartcity.gov",
     phone: "+91 (040) 2345-8733",
-    office: "Water Works Bhavan, Zonal Khairatabad Division, Hyderabad",
+    office: "Jal Bhavan, Water Works Complex, Lakdikapul, Hyderabad",
   },
   electricity: {
-    name: "Sri. Mohammed Arshad",
-    title: "Chief Electrical Inspector & Urban Lighting Lead",
-    email: "m.arshad@smartcity.gov",
+    name: "Sri M. Anand Kumar",
+    title: "Chief Electrical Engineer (Urban Grid & Streetlighting)",
+    email: "anand.kumar@smartcity.gov",
     phone: "+91 (040) 2345-8744",
-    office: "Electrical Distribution Cell, Power Sub-Station Circle, Hyderabad",
+    office: "Vidyut Soudha, Metro Distribution Circle, Hyderabad",
   },
   traffic: {
-    name: "Vikram Simha, IPS",
-    title: "Deputy Commissioner of Police (Traffic & Intelligent Mobility)",
-    email: "vikram.traffic@smartcity.gov",
+    name: "DCP V. Satyanarayana, IPS",
+    title: "Joint Commissioner of Police (Traffic Management & Transit)",
+    email: "satyanarayana.ips@smartcity.gov",
     phone: "+91 (040) 2345-8755",
-    office: "Traffic Command & Control Centre, Nampally, Hyderabad",
+    office: "Traffic Command & Control Center, Basheerbagh, Hyderabad",
   },
   public_health: {
-    name: "Dr. Priya Nambiar",
-    title: "Chief Municipal Health Officer (Urban Health & Epidemic Prevention)",
-    email: "priya.health@smartcity.gov",
+    name: "Dr. P. Aruna Kumari",
+    title: "Chief Medical Officer of Health (Public Health & Epidemic Control)",
+    email: "aruna.kumari@smartcity.gov",
     phone: "+91 (040) 2345-8766",
-    office: "Public Health Directorate, Medical Complex, Himayatnagar, Hyderabad",
+    office: "Arogya Soudha, Directorate of Health Services, Hyderabad",
   },
   general: {
     name: "Sri. Anand Vardhan",
@@ -78,7 +78,7 @@ export default function ReportForm({ onSubmitted, user }) {
     citizen_name: user?.fullName || "",
     citizen_contact: user?.email || "",
     description: "",
-    address: "",
+    address: user?.residentialAddress || "",
     latitude: "",
     longitude: "",
   });
@@ -88,11 +88,19 @@ export default function ReportForm({ onSubmitted, user }) {
   const [recognitionInstance, setRecognitionInstance] = useState(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
+  // Speech and live translation state
+  const baseTextRef = useRef("");
+  const sessionFinalRef = useRef("");
+  const [translationData, setTranslationData] = useState(null);
+  const [translating, setTranslating] = useState(false);
+
   const [image, setImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [modalData, setModalData] = useState(null);
   const [error, setError] = useState(null);
+  const [locating, setLocating] = useState(false);
+  const [locationSuccess, setLocationSuccess] = useState(false);
 
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -100,7 +108,7 @@ export default function ReportForm({ onSubmitted, user }) {
   useEffect(() => {
     return () => {
       if (recognitionInstance) {
-        try { recognitionInstance.stop(); } catch {}
+        try { recognitionInstance.stop(); } catch { }
       }
       if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
@@ -108,7 +116,7 @@ export default function ReportForm({ onSubmitted, user }) {
     };
   }, [recognitionInstance]);
 
-  // Voice speech-to-text recognition
+  // Voice speech-to-text recognition with crystal-clear non-duplicating accumulator
   const toggleSpeechRecognition = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -117,49 +125,50 @@ export default function ReportForm({ onSubmitted, user }) {
     }
 
     if (isListening && recognitionInstance) {
-      try { recognitionInstance.stop(); } catch {}
+      try { recognitionInstance.stop(); } catch { }
       setIsListening(false);
       setSpeechStatus("");
       return;
     }
 
     try {
+      setTranslationData(null);
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
 
-      const langObj = SUPPORTED_LANGUAGES.find((l) => l.code === selectedLang) || SUPPORTED_LANGUAGES[0];
-      recognition.lang = langObj.speechLang || "en-IN";
+      const activeLangConfig = SUPPORTED_LANGUAGES.find((l) => l.code === selectedLang);
+      recognition.lang = activeLangConfig ? activeLangConfig.speechLang : "te-IN";
+
+      baseTextRef.current = form.description ? form.description.trim() + " " : "";
+      sessionFinalRef.current = "";
 
       recognition.onstart = () => {
         setIsListening(true);
-        setSpeechStatus(`Listening in ${langObj.label}... Speak clearly.`);
+        const langName = activeLangConfig?.label || "Telugu / Regional Language";
+        setSpeechStatus(`Listening in ${langName}… Speak clearly`);
       };
 
       recognition.onresult = (event) => {
-        let currentInterim = "";
+        let interim = "";
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
-            const finalWord = event.results[i][0].transcript;
-            setForm((f) => ({
-              ...f,
-              description: f.description ? `${f.description} ${finalWord.trim()}` : finalWord.trim(),
-            }));
+            sessionFinalRef.current += event.results[i][0].transcript + " ";
           } else {
-            currentInterim += event.results[i][0].transcript;
+            interim += event.results[i][0].transcript;
           }
         }
-        if (currentInterim) {
-          setSpeechStatus(`Transcribing: "${currentInterim}"`);
+
+        const combined = (baseTextRef.current + sessionFinalRef.current + interim).replace(/\s+/g, " ").trim();
+        if (combined) {
+          setForm((prev) => ({ ...prev, description: combined }));
         }
       };
 
       recognition.onerror = (event) => {
         console.warn("Speech recognition notice:", event.error);
-        if (event.error !== "no-speech") {
-          setSpeechStatus(`Speech notice: ${event.error}. You can speak again or type.`);
-        }
         setIsListening(false);
+        setSpeechStatus("");
       };
 
       recognition.onend = () => {
@@ -167,12 +176,29 @@ export default function ReportForm({ onSubmitted, user }) {
         setSpeechStatus("");
       };
 
-      recognition.start();
       setRecognitionInstance(recognition);
+      recognition.start();
     } catch (err) {
-      console.error("Speech recognition start failed:", err);
-      setIsListening(false);
-      setSpeechStatus("Could not access microphone.");
+      console.error("Speech recognition startup error:", err);
+      alert("Could not start microphone voice input. Please ensure microphone permissions are granted.");
+    }
+  };
+
+  // High-accuracy live translation handler
+  const handleTranslateLive = async (customText = null) => {
+    const textToTranslate = (customText !== null ? customText : form.description || "").trim();
+    if (!textToTranslate) return;
+
+    setTranslating(true);
+    try {
+      const res = await api.translateText(textToTranslate, selectedLang);
+      if (res?.translated_text && res.translated_text.trim().toLowerCase() !== textToTranslate.toLowerCase()) {
+        setTranslationData(res);
+      }
+    } catch (err) {
+      console.error("Live translation error:", err);
+    } finally {
+      setTranslating(false);
     }
   };
 
@@ -202,17 +228,90 @@ export default function ReportForm({ onSubmitted, user }) {
   };
 
   const useLocation = () => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser.");
+      return;
+    }
+    setLocating(true);
+    setLocationSuccess(false);
+
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setForm((f) => ({
-          ...f,
-          latitude: pos.coords.latitude.toFixed(5),
-          longitude: pos.coords.longitude.toFixed(5),
-        }));
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+
+        try {
+          // Live OpenStreetMap Nominatim reverse geocoding
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&addressdetails=1`,
+            {
+              headers: {
+                "Accept-Language": "en",
+              },
+            }
+          );
+
+          if (!res.ok) throw new Error("Reverse geocoding network response failed");
+          const data = await res.json();
+          const addr = data.address || {};
+
+          const landmark = data.name && data.name !== data.display_name ? data.name : "";
+          const road = addr.road || addr.street || addr.neighbourhood || addr.suburb || addr.residential || "";
+          const city = addr.town || addr.city || addr.municipality || addr.village || addr.county || "";
+          const district = addr.state_district || "";
+          const state = addr.state || "";
+          const postcode = addr.postcode || "";
+
+          const parts = [
+            landmark,
+            road,
+            city,
+            district && district !== city ? district : "",
+            state,
+            postcode,
+          ].filter(Boolean);
+
+          const cleanParts = parts.filter((item, index, self) => self.indexOf(item) === index);
+          const fullAddress = cleanParts.length > 0
+            ? cleanParts.join(", ")
+            : data.display_name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+
+          setForm((f) => ({
+            ...f,
+            address: fullAddress,
+            latitude: lat.toFixed(5),
+            longitude: lon.toFixed(5),
+          }));
+
+          setLocationSuccess(true);
+          setTimeout(() => setLocationSuccess(false), 3500);
+        } catch (err) {
+          console.error("Reverse geocoding error:", err);
+          // Fallback to coordinates
+          setForm((f) => ({
+            ...f,
+            address: f.address || `GPS Location: ${lat.toFixed(5)}° N, ${lon.toFixed(5)}° E`,
+            latitude: lat.toFixed(5),
+            longitude: lon.toFixed(5),
+          }));
+          setLocationSuccess(true);
+          setTimeout(() => setLocationSuccess(false), 3500);
+        } finally {
+          setLocating(false);
+        }
       },
-      () => {
-        setForm((f) => ({ ...f, latitude: "17.4399", longitude: "78.4983" }));
+      (err) => {
+        setLocating(false);
+        let errorMsg = "Could not retrieve location. Please check browser location permissions.";
+        if (err.code === 1) {
+          errorMsg = "Location permission denied. Please allow location access in your browser address bar.";
+        }
+        alert(errorMsg);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
       }
     );
   };
@@ -220,7 +319,7 @@ export default function ReportForm({ onSubmitted, user }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isListening && recognitionInstance) {
-      try { recognitionInstance.stop(); } catch {}
+      try { recognitionInstance.stop(); } catch { }
       setIsListening(false);
     }
 
@@ -303,6 +402,17 @@ export default function ReportForm({ onSubmitted, user }) {
                 </select>
               </div>
 
+              {/* Live Translation to English Action */}
+              <button
+                type="button"
+                className={`live-translate-btn ${translating ? "loading" : ""}`}
+                onClick={() => handleTranslateLive()}
+                disabled={translating || !form.description.trim()}
+                title="Accurately translate Telugu, Tinglish, or Hindi grievance into fluent English"
+              >
+                <span>{translating ? "Translating…" : "🌐 Translate to English"}</span>
+              </button>
+
               {/* Text-To-Speech Listen Button */}
               {form.description && (
                 <button
@@ -332,6 +442,51 @@ export default function ReportForm({ onSubmitted, user }) {
             </div>
           </div>
 
+          {/* Quick Voice & Input Dialect Selection */}
+          <div className="lang-fast-chips">
+            <span className="lang-chip-label">Quick Dialect:</span>
+            <button
+              type="button"
+              className={`lang-fast-chip ${selectedLang === "auto" ? "active" : ""}`}
+              onClick={() => setSelectedLang("auto")}
+              title="Auto-Detect language (Default Telugu/English)"
+            >
+              🌐 Auto
+            </button>
+            <button
+              type="button"
+              className={`lang-fast-chip ${selectedLang === "te" ? "active" : ""}`}
+              onClick={() => setSelectedLang("te")}
+              title="Telugu native script voice & text"
+            >
+              తెలుగు (Telugu)
+            </button>
+            <button
+              type="button"
+              className={`lang-fast-chip ${selectedLang === "tinglish" ? "active" : ""}`}
+              onClick={() => setSelectedLang("tinglish")}
+              title="Telugu written in English alphabets"
+            >
+              Tinglish
+            </button>
+            <button
+              type="button"
+              className={`lang-fast-chip ${selectedLang === "hi" ? "active" : ""}`}
+              onClick={() => setSelectedLang("hi")}
+              title="Hindi native script"
+            >
+              हिंदी (Hindi)
+            </button>
+            <button
+              type="button"
+              className={`lang-fast-chip ${selectedLang === "en" ? "active" : ""}`}
+              onClick={() => setSelectedLang("en")}
+              title="English"
+            >
+              English
+            </button>
+          </div>
+
           {/* Active Voice Listening Animation Bar */}
           {isListening && (
             <div className="speech-pulse-bar">
@@ -344,10 +499,33 @@ export default function ReportForm({ onSubmitted, user }) {
           <textarea
             required
             rows={4}
-            placeholder="Type or Speak..."
+            placeholder="Type or Speak your civic issue in Telugu (రోడ్డు మీద గుంతలు...), Hindi (सड़क पर गड्ढे...), Tinglish, or English..."
             value={form.description}
             onChange={update("description")}
           />
+
+          {/* Live Translation Preview & Apply Card */}
+          {translationData && translationData.translated_text && (
+            <div className="live-translation-card">
+              <div className="live-trans-head">
+                <span className="live-trans-badge">
+                  ✓ Translated from {translationData.detected_language || "Indian Language"} to English
+                </span>
+                <button
+                  type="button"
+                  className="live-trans-apply-btn"
+                  onClick={() => {
+                    setForm((f) => ({ ...f, description: translationData.translated_text }));
+                    setTranslationData(null);
+                  }}
+                  title="Replace original description with this English translation"
+                >
+                  Apply English Translation →
+                </button>
+              </div>
+              <p className="live-trans-text">"{translationData.translated_text}"</p>
+            </div>
+          )}
 
           <div className="hint-row">
             <span className="hint-label">Quick Suggestions:</span>
@@ -403,8 +581,18 @@ export default function ReportForm({ onSubmitted, user }) {
             <div className="coord-row">
               <input placeholder="Latitude" value={form.latitude} onChange={update("latitude")} />
               <input placeholder="Longitude" value={form.longitude} onChange={update("longitude")} />
-              <button type="button" className="btn-ghost coord-btn" onClick={useLocation}>
-                📍 Use My Location
+              <button
+                type="button"
+                className="btn-ghost coord-btn"
+                onClick={useLocation}
+                disabled={locating}
+                title="Detect my exact GPS location and auto-fill address"
+              >
+                {locating
+                  ? "📍 Locating..."
+                  : locationSuccess
+                    ? "✓ Address Filled!"
+                    : "📍 Use My Location"}
               </button>
             </div>
           </label>
@@ -521,14 +709,14 @@ export default function ReportForm({ onSubmitted, user }) {
 
               {modalData.translated_description &&
                 modalData.translated_description.trim().toLowerCase() !== modalData.description.trim().toLowerCase() && (
-                <div className="ack-translation-box">
-                  <div className="ack-trans-head">
-                    <span className="ack-trans-title">🌐 Auto-Translated to English:</span>
-                    <span className="ack-trans-verified">AI Verified</span>
+                  <div className="ack-translation-box">
+                    <div className="ack-trans-head">
+                      <span className="ack-trans-title">🌐 Auto-Translated to English:</span>
+                      <span className="ack-trans-verified">AI Verified</span>
+                    </div>
+                    <p>"{modalData.translated_description}"</p>
                   </div>
-                  <p>"{modalData.translated_description}"</p>
-                </div>
-              )}
+                )}
 
               {modalData.ai_response && (
                 <div className="ack-ai-box">

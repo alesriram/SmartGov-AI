@@ -22,8 +22,8 @@ export const api = {
     client.get("/analytics/forecast", { params: { days_ahead } }).then((r) => r.data),
   hotspots: () => client.get("/analytics/hotspots").then((r) => r.data),
   trends: () => client.get("/analytics/trends").then((r) => r.data),
-  assistantPrompt: (question, provider = null) =>
-    client.post("/assistant/chat", { question, provider }).then((r) => r.data),
+  assistantPrompt: (question, provider = null, model = null) =>
+    client.post("/assistant/chat", { question, provider, model }).then((r) => r.data),
   assistantConfig: () => client.get("/assistant/config").then((r) => r.data),
   saveAssistantConfig: (payload) => client.post("/assistant/config", payload).then((r) => r.data),
   submitComplaint: (formData) =>
@@ -33,4 +33,6 @@ export const api = {
       })
       .then((r) => r.data),
   deleteComplaint: (id) => client.delete(`/complaints/${id}`).then((r) => r.data),
+  translateText: (text, source_lang = "auto") =>
+    client.post("/assistant/translate", { text, source_lang }).then((r) => r.data),
 };

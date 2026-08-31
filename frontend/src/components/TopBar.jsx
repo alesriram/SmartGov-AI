@@ -29,11 +29,16 @@ export default function TopBar({ view, setView, user, onOpenProfile, onLogout, s
               )}
             </svg>
           </button>
-          <div className="brand-mark">
+          <button
+            type="button"
+            className="brand-mark brand-mark-btn"
+            onClick={() => setView("overview")}
+            title="SmartGov AI — Return to Home Dashboard"
+            aria-label="SmartGov AI Home"
+          >
             <span className="brand-dot" />
             <span className="brand-name">SmartGov&nbsp;AI</span>
-          </div>
-          <span className="brand-sub">Civic Operations Intelligence</span>
+          </button>
         </div>
         <div className="topbar-right">
           <div
@@ -55,7 +60,11 @@ export default function TopBar({ view, setView, user, onOpenProfile, onLogout, s
             </div>
 
             <div className="officer-avatar-gem">
-              {(user?.fullName || "O").charAt(0).toUpperCase()}
+              {user?.avatarUrl ? (
+                <img src={user.avatarUrl} alt={user?.fullName || "Officer"} className="officer-avatar-gem-img" />
+              ) : (
+                (user?.fullName || "O").charAt(0).toUpperCase()
+              )}
             </div>
           </div>
 
@@ -129,7 +138,11 @@ export default function TopBar({ view, setView, user, onOpenProfile, onLogout, s
         <div className="sidebar-bottom">
           <div className="sidebar-profile">
             <div className="sidebar-profile-avatar">
-              {(user?.fullName || "A").charAt(0).toUpperCase()}
+              {user?.avatarUrl ? (
+                <img src={user.avatarUrl} alt={user?.fullName || "Admin"} className="sidebar-avatar-img" />
+              ) : (
+                (user?.fullName || "A").charAt(0).toUpperCase()
+              )}
             </div>
             <div className="sidebar-profile-info">
               <span className="sidebar-profile-name">{user?.fullName || "Admin"}</span>
